@@ -20,11 +20,15 @@ import { normalizePdfMeta } from '../../src/v2/normalizePdf';
 
 function dockerOk(): boolean {
   try {
-    execSync('docker compose ps app', {
+    // `-q` retourne l'ID du conteneur `app` UNIQUEMENT s'il tourne (vide sinon).
+    // On exige un conteneur lancé : en CI le daemon Docker existe mais `app`
+    // n'est pas up → on skip proprement (sinon les `docker compose exec/cp`
+    // plus bas echoueraient + la fixture template.pdf est gitignore).
+    const out = execSync('docker compose ps -q app', {
       cwd: path.resolve(__dirname, '../..'),
-      stdio: 'ignore',
-    });
-    return true;
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).toString().trim();
+    return out.length > 0;
   } catch {
     return false;
   }

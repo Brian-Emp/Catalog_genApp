@@ -35,6 +35,18 @@ describe('Gemini stats', () => {
     expect(s.errorBreakdown[429]).toBe(1);
   });
 
+  it('byModelDetail : calls / ok / quota par modele (cascade epuise → secours)', () => {
+    recordCall({ module: 'a', model: 'gemini-3.5-flash', status: 'error', durationMs: 100, errorCode: 429 });
+    recordCall({ module: 'a', model: 'gemini-3.5-flash', status: 'error', durationMs: 100, errorCode: 429 });
+    recordCall({ module: 'a', model: 'gemini-2.5-flash', status: 'ok', durationMs: 1000, usedFallback: true });
+    recordCall({ module: 'b', model: 'gemini-2.5-flash', status: 'ok', durationMs: 1000 });
+    const s = getStats();
+    // 3.5-flash : 2 appels, 0 ok, 2 quota → epuise
+    expect(s.byModelDetail['gemini-3.5-flash']).toEqual({ calls: 2, ok: 0, quota: 2 });
+    // 2.5-flash : 2 appels, 2 ok, 0 quota → sain
+    expect(s.byModelDetail['gemini-2.5-flash']).toEqual({ calls: 2, ok: 2, quota: 0 });
+  });
+
   it('retry_exhausted compte separement', () => {
     recordCall({ module: 'x', model: 'm', status: 'retry_exhausted', durationMs: 6000 });
     const s = getStats();

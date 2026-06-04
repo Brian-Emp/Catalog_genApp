@@ -141,6 +141,9 @@ export interface GeminiUsage {
   /** Appels par modele (nom API → nombre) pour cette generation. Permet a l'UI
    *  d'afficher le(s) modele(s) reellement utilise(s) et les bascules. */
   byModel: Record<string, number>;
+  /** Detail par modele (appels / ok / quota429) → l'UI montre quels modeles
+   *  de la cascade sont epuises vs sains. */
+  byModelDetail?: Record<string, { calls: number; ok: number; quota: number }>;
   totalCalls: number;
   okCalls: number;
   /** Bascules de cascade (un appel a du passer a un modele de secours). */
@@ -1052,6 +1055,17 @@ export async function substituteCatalogEngine(
         `descriptions marketing : ${Object.keys(tocDescriptions).length} section(s) generee(s)`
           + (descResult.costUsd !== undefined ? ` (cout ~$${descResult.costUsd.toFixed(3)})` : ''),
       );
+    } else if (opts.enableGeminiDescriptions !== false) {
+      // Descriptions DEMANDÉES mais AUCUNE produite → on le signale explicitement.
+      // Sinon le sommaire perd ses chapeaux sans aucune explication (cause typique :
+      // quota Gemini journalier epuise / cascade froide → reessayer plus tard).
+      const why = descResult.notes.find(
+        (n) => /froid|quota|429|erreur|error|absente|echec|indispo/i.test(n),
+      );
+      warnings.push(
+        'descriptions marketing : aucune generee (sommaire sans chapeaux) — '
+          + (why ?? 'Gemini indisponible (quota/erreur), reessayer plus tard'),
+      );
     }
 
     // PASS 1 : pick TOC source page via build "dry" avec page_number=0.
@@ -1732,6 +1746,7 @@ export async function substituteCatalogEngine(
   const geminiUsage: GeminiUsage | undefined = geminiDelta.totalCalls > 0
     ? {
         byModel: geminiDelta.byModel,
+        byModelDetail: geminiDelta.byModelDetail,
         totalCalls: geminiDelta.totalCalls,
         okCalls: geminiDelta.okCalls,
         fallbacks: geminiDelta.fallbacksUsed,

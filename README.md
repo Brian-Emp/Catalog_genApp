@@ -1,5 +1,8 @@
 # catalog-gen-app
 
+[![CI](https://github.com/Brian-Emp/Catalogue_genApp/actions/workflows/ci.yml/badge.svg)](https://github.com/Brian-Emp/Catalogue_genApp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Takes a **reference catalog PDF** + **product data** (CSV/XLSX) + **product images**, and regenerates a new PDF with the products substituted in — keeping the original layout, sections, table of contents and page numbering intact.
 
 The core pipeline is **fully deterministic** (no AI required). AI enrichments are **optional** and degrade gracefully when no credentials are present.

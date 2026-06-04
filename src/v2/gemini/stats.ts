@@ -48,6 +48,9 @@ interface StatsAggregate {
   byModule: Record<string, number>;
   /** Map model → count. */
   byModel: Record<string, number>;
+  /** Detail par modele : appels / ok / quota(429). Sert a l'UI a montrer
+   *  QUELS modeles sont epuises (quota journalier atteint) vs sains. */
+  byModelDetail: Record<string, { calls: number; ok: number; quota: number }>;
 }
 
 let records: GeminiCallRecord[] = [];
@@ -60,8 +63,8 @@ export function recordCall(rec: Omit<GeminiCallRecord, 'timestamp'>): void {
   }
 }
 
-export function getStats(): StatsAggregate {
-  const agg: StatsAggregate = {
+function emptyAggregate(): StatsAggregate {
+  return {
     totalCalls: 0,
     okCalls: 0,
     errorCalls: 0,
@@ -74,23 +77,35 @@ export function getStats(): StatsAggregate {
     errorBreakdown: {},
     byModule: {},
     byModel: {},
+    byModelDetail: {},
   };
-  for (const r of records) {
-    agg.totalCalls++;
-    agg.totalDurationMs += r.durationMs;
-    if (r.status === 'ok') agg.okCalls++;
-    else if (r.status === 'cache_hit') agg.cacheHits++;
-    else if (r.status === 'retry_exhausted') agg.retryExhausted++;
-    else agg.errorCalls++;
-    if (r.usedFallback) agg.fallbacksUsed++;
-    if (r.promptTokens) agg.totalPromptTokens += r.promptTokens;
-    if (r.candidateTokens) agg.totalCandidateTokens += r.candidateTokens;
-    if (r.errorCode) {
-      agg.errorBreakdown[r.errorCode] = (agg.errorBreakdown[r.errorCode] ?? 0) + 1;
-    }
-    agg.byModule[r.module] = (agg.byModule[r.module] ?? 0) + 1;
-    agg.byModel[r.model] = (agg.byModel[r.model] ?? 0) + 1;
+}
+
+function accumulateRecord(agg: StatsAggregate, r: GeminiCallRecord): void {
+  agg.totalCalls++;
+  agg.totalDurationMs += r.durationMs;
+  if (r.status === 'ok') agg.okCalls++;
+  else if (r.status === 'cache_hit') agg.cacheHits++;
+  else if (r.status === 'retry_exhausted') agg.retryExhausted++;
+  else agg.errorCalls++;
+  if (r.usedFallback) agg.fallbacksUsed++;
+  if (r.promptTokens) agg.totalPromptTokens += r.promptTokens;
+  if (r.candidateTokens) agg.totalCandidateTokens += r.candidateTokens;
+  if (r.errorCode) {
+    agg.errorBreakdown[r.errorCode] = (agg.errorBreakdown[r.errorCode] ?? 0) + 1;
   }
+  agg.byModule[r.module] = (agg.byModule[r.module] ?? 0) + 1;
+  agg.byModel[r.model] = (agg.byModel[r.model] ?? 0) + 1;
+  const d = agg.byModelDetail[r.model]
+    ?? (agg.byModelDetail[r.model] = { calls: 0, ok: 0, quota: 0 });
+  d.calls++;
+  if (r.status === 'ok') d.ok++;
+  if (r.errorCode === 429) d.quota++;
+}
+
+export function getStats(): StatsAggregate {
+  const agg = emptyAggregate();
+  for (const r of records) accumulateRecord(agg, r);
   return agg;
 }
 
@@ -118,37 +133,8 @@ export function snapshotMark(): number {
  * Agrege seulement les records ajoutes APRES un snapshot mark.
  */
 export function statsSince(mark: number): StatsAggregate {
-  const agg: StatsAggregate = {
-    totalCalls: 0,
-    okCalls: 0,
-    errorCalls: 0,
-    cacheHits: 0,
-    retryExhausted: 0,
-    fallbacksUsed: 0,
-    totalDurationMs: 0,
-    totalPromptTokens: 0,
-    totalCandidateTokens: 0,
-    errorBreakdown: {},
-    byModule: {},
-    byModel: {},
-  };
-  for (let i = Math.max(0, mark); i < records.length; i++) {
-    const r = records[i];
-    agg.totalCalls++;
-    agg.totalDurationMs += r.durationMs;
-    if (r.status === 'ok') agg.okCalls++;
-    else if (r.status === 'cache_hit') agg.cacheHits++;
-    else if (r.status === 'retry_exhausted') agg.retryExhausted++;
-    else agg.errorCalls++;
-    if (r.usedFallback) agg.fallbacksUsed++;
-    if (r.promptTokens) agg.totalPromptTokens += r.promptTokens;
-    if (r.candidateTokens) agg.totalCandidateTokens += r.candidateTokens;
-    if (r.errorCode) {
-      agg.errorBreakdown[r.errorCode] = (agg.errorBreakdown[r.errorCode] ?? 0) + 1;
-    }
-    agg.byModule[r.module] = (agg.byModule[r.module] ?? 0) + 1;
-    agg.byModel[r.model] = (agg.byModel[r.model] ?? 0) + 1;
-  }
+  const agg = emptyAggregate();
+  for (let i = Math.max(0, mark); i < records.length; i++) accumulateRecord(agg, records[i]);
   return agg;
 }
 

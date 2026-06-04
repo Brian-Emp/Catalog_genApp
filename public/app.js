@@ -239,20 +239,44 @@ function buildDiagnostic(json) {
   const usage = json.geminiUsage;
   if (usage && usage.totalCalls > 0) {
     const short = (m) => String(m).replace(/^gemini-/, '').replace(/-preview$/, '');
-    const models = Object.entries(usage.byModel || {}).sort((a, b) => b[1] - a[1]);
-    const modelLabel = models.map(([m, c]) => `${short(m)} ×${c}`).join(' · ');
+    const detail = usage.byModelDetail || {};
+    // Ordre cascade (meilleur → secours) pour un affichage parlant.
+    const CASCADE = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite', 'gemma-4-31b-it'];
+    const rank = (m) => { const i = CASCADE.indexOf(m); return i < 0 ? 99 : i; };
+    const models = Object.entries(usage.byModel || {}).sort((a, b) => rank(a[0]) - rank(b[0]));
+    // Badge par modèle : ✓ s'il a répondu, ⚠ s'il n'a fait que prendre du quota.
+    const badge = (m) => {
+      const d = detail[m];
+      if (!d) return '';
+      if (d.quota > 0 && d.ok === 0) return ' ⚠';
+      if (d.ok > 0) return ' ✓';
+      return '';
+    };
+    const modelLabel = models.map(([m, c]) => `${short(m)} ×${c}${badge(m)}`).join(' · ');
     const stat = [`${usage.okCalls}/${usage.totalCalls} OK`];
     if (usage.calls429 > 0) stat.push(`${usage.calls429}× quota`);
+    if (usage.fallbacks > 0) stat.push(`${usage.fallbacks} bascule(s)`);
+    // État quota PAR modèle (bloc technique) : qui est épuisé vs sain.
+    const perModel = {};
+    for (const [m, c] of models) {
+      const d = detail[m];
+      if (!d) { perModel[short(m)] = `${c} appel(s)`; continue; }
+      const bits = [`${d.ok}/${d.calls} OK`];
+      if (d.quota > 0) bits.push(`${d.quota}× quota`);
+      const state = (d.quota > 0 && d.ok === 0) ? ' → épuisé (RPD)' : (d.ok > 0 ? ' → OK' : '');
+      perModel[short(m)] = `${bits.join(' · ')}${state}`;
+    }
     items.push({
       level: 'info',
       msg: `IA Gemini : ${modelLabel} (${stat.join(' · ')}).`,
       detail: usage.fallbacks > 0
-        ? `${usage.fallbacks} bascule(s) de modèle — un quota journalier épuisé, relais par la cascade.`
+        ? `${usage.fallbacks} bascule(s) automatique(s) : un pool de quota journalier (RPD) épuisé, relais par la cascade — l'enrichissement a tout de même abouti.`
         : undefined,
       tech: {
-        byModel: usage.byModel,
+        stats: perModel,
         cause: 'Cascade qualité-d\'abord : 3.5-flash → 2.5-flash → 3.1-flash-lite → 2.5-flash-lite → '
-          + 'Gemma → Claude. Bascule automatique quand un pool de quota journalier (RPD) est épuisé.',
+          + 'Gemma → Claude. Chaque modèle a son quota journalier (RPD) propre ; sur épuisement (429) '
+          + 'ou surcharge (503), bascule automatique au modèle suivant.',
       },
     });
   }

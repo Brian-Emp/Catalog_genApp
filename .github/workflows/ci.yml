@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main, finalisation]
+  pull_request:
+
+jobs:
+  test:
+    name: typecheck + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Tests
+        # Unit + integration TS suite (no network). The Docker/C++ end-to-end
+        # tests self-skip when no `app` container is running (see dockerOk()),
+        # so they are exercised locally via `npm run smoke`, not in CI.
+        run: npx vitest run
