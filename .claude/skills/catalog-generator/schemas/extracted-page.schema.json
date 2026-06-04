@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://catalog-gen-app/schemas/extracted-page.schema.json",
+  "title": "ExtractedPage",
+  "description": "Description complete d'une page du PDF template, produite par l'extracteur C++ et consommee par Claude (Skill) puis le renderer.",
+  "type": "object",
+  "required": ["page_number", "page_size", "slots"],
+  "properties": {
+    "page_number": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Index 0-base de la page dans le PDF source (= numero d'ordre, pas le numero affiche)."
+    },
+    "page_size": {
+      "type": "object",
+      "required": ["width", "height"],
+      "properties": {
+        "width":  { "type": "number", "minimum": 0, "description": "Largeur en points PDF (1 point = 1/72 pouce)." },
+        "height": { "type": "number", "minimum": 0, "description": "Hauteur en points PDF." }
+      }
+    },
+    "slots": {
+      "type": "array",
+      "description": "Liste des zones detectees dans la page. Chaque slot a un type discriminant. Origine bbox = top-left (PDFium convention).",
+      "items": { "$ref": "#/$defs/slot" }
+    },
+    "extractor_version": {
+      "type": "string",
+      "description": "Version du binaire catgen-pdf qui a produit ce JSON. Utile pour tracer les regressions."
+    }
+  },
+
+  "$defs": {
+
+    "bbox": {
+      "type": "array",
+      "description": "Rectangle [x0, y0, x1, y1] en points PDF, origine top-left.",
+      "items": { "type": "number" },
+      "minItems": 4,
+      "maxItems": 4
+    },
+
+    "color_hex": {
+      "type": "string",
+      "description": "Couleur RGB en hexadecimal, ex '#1a1a1a'.",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+
+    "text_span": {
+      "type": "object",
+      "description": "Un fragment de texte avec sa position et son style.",
+      "required": ["text", "bbox", "font", "size", "color"],
+      "properties": {
+        "text":  { "type": "string", "description": "Le texte litteral." },
+        "bbox":  { "$ref": "#/$defs/bbox" },
+        "font":  { "type": "string", "description": "Nom de la police (basefont sans le prefixe subset)." },
+        "size":  { "type": "number", "minimum": 0, "description": "Taille en points." },
+        "color": { "$ref": "#/$defs/color_hex" }
+      }
+    },
+
+    "slot": {
+      "type": "object",
+      "description": "Un slot detecte sur la page. Le type discriminant determine les champs supplementaires.",
+      "required": ["type", "id", "bbox"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "section_banner",
+            "section_ribbon",
+            "product_slot",
+            "toc_entry",
+            "toc_title",
+            "page_number",
+            "running_header",
+            "decoration",
+            "keep_page_raw"
+          ]
+        },
+        "id":   { "type": "string", "description": "Identifiant unique du slot dans cette page (ex 'product_0', 'banner_0')." },
+        "bbox": { "$ref": "#/$defs/bbox" }
+      },
+
+      "oneOf": [
+        { "$ref": "#/$defs/slot_section_banner" },
+        { "$ref": "#/$defs/slot_section_ribbon" },
+        { "$ref": "#/$defs/slot_product"        },
+        { "$ref": "#/$defs/slot_toc_entry"      },
+        { "$ref": "#/$defs/slot_toc_title"      },
+        { "$ref": "#/$defs/slot_page_number"    },
+        { "$ref": "#/$defs/slot_running_header" },
+        { "$ref": "#/$defs/slot_decoration"     },
+        { "$ref": "#/$defs/slot_keep_page_raw"  }
+      ]
+    },
+
+    "slot_section_banner": {
+      "description": "Bandeau de section en haut de page (ex 'TUYAUTERIE' sur fond orange).",
+      "properties": {
+        "type":          { "const": "section_banner" },
+        "label":         { "$ref": "#/$defs/text_span" },
+        "background":    { "$ref": "#/$defs/color_hex" }
+      },
+      "required": ["type", "label"]
+    },
+
+    "slot_section_ribbon": {
+      "description": "Ruban vertical sur le bord (ex 'salle de bains' tournee 90 deg).",
+      "properties": {
+        "type":     { "const": "section_ribbon" },
+        "label":    { "$ref": "#/$defs/text_span" },
+        "rotation": { "type": "integer", "enum": [0, 90, 180, 270], "description": "Angle de rotation du texte en degres." },
+        "background": { "$ref": "#/$defs/color_hex" }
+      },
+      "required": ["type", "label"]
+    },
+
+    "slot_product": {
+      "description": "Fiche produit complete : nom, ref, couleur, image principale, specs, variantes optionnelles.",
+      "properties": {
+        "type":  { "const": "product_slot" },
+        "name":  { "$ref": "#/$defs/text_span" },
+        "ref":   { "anyOf": [ { "$ref": "#/$defs/text_span" }, { "type": "null" } ], "description": "Reference produit (optionnel)." },
+        "color": { "anyOf": [ { "$ref": "#/$defs/text_span" }, { "type": "null" } ], "description": "Libelle couleur (optionnel)." },
+        "image": {
+          "type": "object",
+          "description": "Image principale du produit (photo).",
+          "required": ["bbox"],
+          "properties": {
+            "bbox": { "$ref": "#/$defs/bbox" }
+          }
+        },
+        "specs": {
+          "type": "array",
+          "description": "Liste ordonnee des specifications (cle + valeur) affichees sous le produit.",
+          "items": {
+            "type": "object",
+            "required": ["key", "values"],
+            "properties": {
+              "key":    { "$ref": "#/$defs/text_span" },
+              "values": { "type": "array", "items": { "$ref": "#/$defs/text_span" }, "description": "Plusieurs spans si la valeur est multi-mots ou multi-lignes." }
+            }
+          }
+        },
+        "variants": {
+          "type": "array",
+          "description": "Variantes de couleur (cercles + labels). Vide si le produit n'a pas de variantes.",
+          "items": {
+            "type": "object",
+            "required": ["bbox", "color"],
+            "properties": {
+              "bbox":  { "$ref": "#/$defs/bbox", "description": "Rect du cercle/pastille." },
+              "color": { "$ref": "#/$defs/color_hex" },
+              "label": { "anyOf": [ { "$ref": "#/$defs/text_span" }, { "type": "null" } ] }
+            }
+          }
+        }
+      },
+      "required": ["type", "name", "image"]
+    },
+
+    "slot_toc_entry": {
+      "description": "Une ligne du sommaire : libelle a gauche + numero de page a droite, parfois pointilles entre les deux.",
+      "properties": {
+        "type":  { "const": "toc_entry" },
+        "label": { "$ref": "#/$defs/text_span" },
+        "page_number_text": { "$ref": "#/$defs/text_span" }
+      },
+      "required": ["type", "label", "page_number_text"]
+    },
+
+    "slot_toc_title": {
+      "description": "Titre d'un sommaire (ex 'SOMMAIRE').",
+      "properties": {
+        "type":  { "const": "toc_title" },
+        "label": { "$ref": "#/$defs/text_span" }
+      },
+      "required": ["type", "label"]
+    },
+
+    "slot_page_number": {
+      "description": "Numero de page affiche en pied (ex '/ 6').",
+      "properties": {
+        "type":  { "const": "page_number" },
+        "label": { "$ref": "#/$defs/text_span" },
+        "current_number": { "type": "integer", "minimum": 0, "description": "Numero de page tel que detecte (parse de label.text)." }
+      },
+      "required": ["type", "label"]
+    },
+
+    "slot_running_header": {
+      "description": "Bandeau / texte recurrent ou catch-all (toute zone de texte non-banner non-pageNumber). Inclut nom produit, ref, couleur, specs sur les fiches produit. Le champ optionnel 'inferred_type' est ajoute en post-traitement par slotClassifier (TS) pour que Claude sache si ce slot represente un nom/ref/couleur/spec.",
+      "properties": {
+        "type":  { "const": "running_header" },
+        "label": { "$ref": "#/$defs/text_span" },
+        "inferred_type": {
+          "type": "string",
+          "enum": ["name", "ref", "color", "spec_key", "spec_value", "other"],
+          "description": "Type semantique infere : name=titre produit (plus grande font), ref=code numerique, color=couleur connue, spec_key=libelle finissant par ':', spec_value=valeur apres une key, other=reste."
+        }
+      },
+      "required": ["type", "label"]
+    },
+
+    "slot_decoration": {
+      "description": "Elements graphiques decoratifs (photos lifestyle, logos, formes vector). Le renderer les copie tels quels.",
+      "properties": {
+        "type": { "const": "decoration" },
+        "kind": { "type": "string", "enum": ["image", "vector"], "description": "Image bitmap ou path vector." }
+      },
+      "required": ["type", "kind"]
+    },
+
+    "slot_keep_page_raw": {
+      "description": "Marqueur explicite : la page entiere doit etre copiee telle quelle (cover, mentions legales, formulaire interactif). Quand ce slot est present il est UNIQUE sur la page.",
+      "properties": {
+        "type":   { "const": "keep_page_raw" },
+        "reason": { "type": "string", "description": "Pourquoi on garde la page telle quelle (debug)." }
+      },
+      "required": ["type"]
+    }
+
+  }
+}

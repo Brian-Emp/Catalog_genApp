@@ -1,0 +1,48 @@
+# ── Hors image : deps, build, VCS ──
+node_modules
+dist
+build
+pdf-engine/build
+coverage
+*.tsbuildinfo
+.git
+.gitignore
+.gitattributes
+.dockerignore
+.vscode
+.idea
+.DS_Store
+*.log
+
+# ── Docs & plans (non requis au build) ──
+README.md
+*_PLAN.md
+ATTACK_PLAN.md
+BC_test.md
+
+# ── Docker (l'image ne se contient pas elle-meme) ──
+# NB : entrypoint.sh est COPIE dans l'image → ne PAS l'ignorer.
+Dockerfile
+docker-compose*.yml
+docker-compose.override.yml*
+
+# ── Tests & scripts dev (non copies dans l'image) ──
+tests
+scripts
+vitest.config.ts
+
+# ── Secrets : NE JAMAIS embarquer ──
+.env
+.env.*
+!.env.example
+
+# ── Volumes runtime ──
+uploads
+generated
+output
+runs
+tmp
+
+# ── Sessions/worktrees Claude prives — on garde le bundle Skill ──
+.claude/*
+!.claude/skills/

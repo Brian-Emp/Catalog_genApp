@@ -1,0 +1,74 @@
+# Dependances
+node_modules/
+
+# Build TypeScript
+dist/
+*.tsbuildinfo
+
+# Binaires C++ pdf-engine (compilation locale ou Docker copy)
+pdf-engine/build/
+
+# Logs
+*.log
+
+# Tests
+coverage/
+# Extraction complete du fixture (188 pages, ~22MB) — generee par bin catgen-pdf
+# extract sur tests/fixtures/template.pdf. Les tests cascade/toc skip si absent.
+tests/v2/engine/fixtures-full/
+
+# Secrets (NE JAMAIS COMMITER)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Donnees runtime (volumes Docker) — on garde les .gitkeep
+uploads/*
+!uploads/.gitkeep
+generated/*
+!generated/.gitkeep
+runs/*
+!runs/.gitkeep
+tmp/
+
+# Claude Code : on ignore les sessions/worktrees prives
+# MAIS on commite le bundle Skill (code source du projet).
+.claude/*
+!.claude/skills/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Override docker-compose local (config user-specifique : volume claude CLI, etc.)
+docker-compose.override.yml
+/node_modules
+
+# Cache Gemini (sha256 prompt+image → audit issues, evite quota daily)
+.gemini-cache/
+
+# Donnees client (PDF / CSV / tableurs / archives) — NE JAMAIS commiter de
+# fichier client reel. Les fixtures de test vivent dans tests/fixtures/
+# (gitignore dedie) ; les donnees factices anonymisees vont dans tests/mocks/.
+*.pdf
+*.csv
+*.xlsx
+*.xls
+*.zip
+!tests/mocks/**
+
+# Repertoires de build natif (defensif, au-dela de pdf-engine/build/)
+build/
+out/
+bin/
+
+# Repertoires de donnees runtime additionnels
+/data/

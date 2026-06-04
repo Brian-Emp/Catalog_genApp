@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://catalog-gen-app/schemas/plan.schema.json",
+  "title": "RenderPlan",
+  "description": "Plan d'execution produit par Claude (via le Skill catalog-generator) et consomme par le renderer C++. Specifie l'ordre des pages, les operations a appliquer sur chacune, et les avertissements eventuels.",
+  "type": "object",
+  "required": ["version", "pages"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1",
+      "description": "Version du format de plan. Permet d'evoluer le schema sans casser les anciens plans."
+    },
+    "template_pdf_hash": {
+      "type": "string",
+      "description": "sha256 du PDF template utilise. Permet de detecter qu'un plan est incompatible avec un nouveau template (regenerer)."
+    },
+    "pages": {
+      "type": "array",
+      "description": "Pages du PDF final, dans l'ordre desire. Chaque entree pointe vers une page du template source et decrit comment la rendre.",
+      "items": { "$ref": "#/$defs/page_plan" }
+    },
+    "warnings": {
+      "type": "array",
+      "description": "Avertissements emis par Claude pendant la planification (ex 'aucun produit pour la section X').",
+      "items": { "type": "string" }
+    },
+    "stats": {
+      "type": "object",
+      "description": "Statistiques de planification (compteur de produits places, slots vides, etc).",
+      "properties": {
+        "products_used":      { "type": "integer", "minimum": 0 },
+        "products_remaining": { "type": "integer", "minimum": 0 },
+        "pages_kept":         { "type": "integer", "minimum": 0 },
+        "pages_deleted":      { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+
+  "$defs": {
+
+    "color_hex": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$",
+      "description": "Couleur RGB en hexadecimal '#rrggbb'."
+    },
+
+    "bbox": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "Rectangle [x0, y0, x1, y1] en points PDF, origine top-left."
+    },
+
+    "page_plan": {
+      "type": "object",
+      "description": "Comment rendre UNE page du PDF final. Soit on copie la page source telle quelle (keep_raw), soit on applique une liste d'operations.",
+      "required": ["source_page", "render"],
+      "properties": {
+        "source_page": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Index 0-base de la page dans le PDF template source."
+        },
+        "page_number": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Numero de page a afficher dans le pied (renumerotation). null = ne pas modifier."
+        },
+        "render": {
+          "oneOf": [
+            { "$ref": "#/$defs/render_keep_raw" },
+            { "$ref": "#/$defs/render_operations" }
+          ]
+        }
+      }
+    },
+
+    "render_keep_raw": {
+      "type": "object",
+      "description": "Copier la page source telle quelle, sans toucher au contenu.",
+      "required": ["mode"],
+      "properties": {
+        "mode": { "const": "keep_raw" }
+      }
+    },
+
+    "render_operations": {
+      "type": "object",
+      "description": "Appliquer une liste d'operations atomiques sur la page source pour produire la page finale.",
+      "required": ["mode", "operations"],
+      "properties": {
+        "mode": { "const": "operations" },
+        "operations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/operation" }
+        }
+      }
+    },
+
+    "operation": {
+      "type": "object",
+      "description": "Operation atomique de rendering. Le type 'op' est discriminant.",
+      "required": ["op"],
+      "properties": {
+        "op": {
+          "type": "string",
+          "enum": [
+            "set_text",
+            "fill_product_slot",
+            "erase_rect",
+            "draw_circle",
+            "draw_image"
+          ]
+        }
+      },
+      "oneOf": [
+        { "$ref": "#/$defs/op_set_text"          },
+        { "$ref": "#/$defs/op_fill_product_slot" },
+        { "$ref": "#/$defs/op_erase_rect"        },
+        { "$ref": "#/$defs/op_draw_circle"       },
+        { "$ref": "#/$defs/op_draw_image"        }
+      ]
+    },
+
+    "op_set_text": {
+      "description": "Remplacer le texte d'un slot existant (banner, ribbon, toc_entry, page_number, running_header...). Le renderer utilise la bbox + font + size + color du slot source.",
+      "properties": {
+        "op":      { "const": "set_text" },
+        "slot_id": { "type": "string", "description": "Reference vers le slot.id dans extracted-page.json." },
+        "text":    { "type": "string", "description": "Nouveau texte." }
+      },
+      "required": ["op", "slot_id", "text"]
+    },
+
+    "op_fill_product_slot": {
+      "description": "Remplir un product_slot avec un produit complet. Le renderer remplace name, ref, color, image, specs, variants en utilisant les bbox + styles du slot source.",
+      "properties": {
+        "op":      { "const": "fill_product_slot" },
+        "slot_id": { "type": "string", "description": "Reference vers le product_slot.id dans extracted-page.json." },
+        "product": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name":       { "type": "string" },
+            "ref":        { "type": ["string", "null"] },
+            "color":      { "type": ["string", "null"] },
+            "image_path": { "type": ["string", "null"], "description": "Chemin relatif (depuis assets-dir) vers l'image. null = pas d'image, on garde la zone vide." },
+            "specs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["key", "values"],
+                "properties": {
+                  "key":    { "type": "string" },
+                  "values": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            },
+            "variants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["color"],
+                "properties": {
+                  "color": { "$ref": "#/$defs/color_hex" },
+                  "label": { "type": ["string", "null"] }
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": ["op", "slot_id", "product"]
+    },
+
+    "op_erase_rect": {
+      "description": "Effacer (peindre en blanc opaque) une zone rectangulaire. Sert a virer les vestiges decoratifs orphelins (arcs, separateurs).",
+      "properties": {
+        "op":   { "const": "erase_rect" },
+        "bbox": { "$ref": "#/$defs/bbox" }
+      },
+      "required": ["op", "bbox"]
+    },
+
+    "op_draw_circle": {
+      "description": "Dessiner un cercle plein (ex pastille de variante couleur).",
+      "properties": {
+        "op":     { "const": "draw_circle" },
+        "center": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "[x, y] en points PDF, origine top-left."
+        },
+        "radius": { "type": "number", "minimum": 0 },
+        "color":  { "$ref": "#/$defs/color_hex" }
+      },
+      "required": ["op", "center", "radius", "color"]
+    },
+
+    "op_draw_image": {
+      "description": "Inserer une image (PNG ou JPG) dans la zone bbox.",
+      "properties": {
+        "op":         { "const": "draw_image" },
+        "bbox":       { "$ref": "#/$defs/bbox" },
+        "image_path": { "type": "string", "description": "Chemin relatif (depuis assets-dir)." },
+        "fit": {
+          "type": "string",
+          "enum": ["contain", "cover", "stretch"],
+          "default": "contain",
+          "description": "Comment l'image se loge dans bbox : contain = preserve ratio, blank space autour ; cover = preserve ratio, croppe ; stretch = etire."
+        }
+      },
+      "required": ["op", "bbox", "image_path"]
+    }
+
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "_doc": "Few-shot example : 2 produits places dans une page template qui a 2 product_slots. PAS commit-le, ce _doc est juste pour ce fichier d'exemple, NE PAS l'inclure dans ton output.",
+
+  "input": {
+    "extracted_page": {
+      "page_number": 5,
+      "page_size": { "width": 595.28, "height": 841.89 },
+      "slots": [
+        {
+          "type": "section_banner",
+          "id": "banner_0",
+          "bbox": [240.0, 0.0, 565.0, 35.0],
+          "label": {
+            "text": "BARRES DE DOUCHES",
+            "bbox": [260.0, 8.0, 540.0, 28.0],
+            "font": "Almanach-Bold",
+            "size": 18.0,
+            "color": "#ffffff"
+          }
+        },
+        {
+          "type": "running_header",
+          "id": "running_header_0",
+          "bbox": [50.0, 90.0, 250.0, 110.0],
+          "label": {
+            "text": "BARRE DOUCHE TAMARI 60 CHR BT",
+            "bbox": [50.0, 90.0, 250.0, 110.0],
+            "font": "Almanach-Bold",
+            "size": 14.0,
+            "color": "#1a1a1a"
+          }
+        },
+        {
+          "type": "running_header",
+          "id": "running_header_1",
+          "bbox": [50.0, 450.0, 250.0, 470.0],
+          "label": {
+            "text": "BARRE DOUCHE TAMARI 70 CHR BT",
+            "bbox": [50.0, 450.0, 250.0, 470.0],
+            "font": "Almanach-Bold",
+            "size": 14.0,
+            "color": "#1a1a1a"
+          }
+        },
+        {
+          "type": "page_number",
+          "id": "page_number_0",
+          "bbox": [550.0, 825.0, 575.0, 838.0],
+          "label": { "text": "5", "bbox": [550.0, 825.0, 575.0, 838.0], "font": "Almanach-Light", "size": 9.0, "color": "#1a1a1a" },
+          "current_number": 5
+        }
+      ]
+    },
+    "products": [
+      { "name": "BARRE DOUCHE NEW MODEL X1", "ref": "1234567", "color": "Chrome",  "image_path": null, "specs": [], "variants": [] },
+      { "name": "BARRE DOUCHE NEW MODEL X2", "ref": "7654321", "color": "Noir",     "image_path": null, "specs": [], "variants": [] }
+    ]
+  },
+
+  "expected_plan": {
+    "version": "1",
+    "pages": [
+      {
+        "source_page": 5,
+        "page_number": 1,
+        "render": {
+          "mode": "operations",
+          "operations": [
+            { "op": "set_text", "slot_id": "banner_0",        "text": "BARRES DE DOUCHES" },
+            { "op": "set_text", "slot_id": "running_header_0", "text": "BARRE DOUCHE NEW MODEL X1" },
+            { "op": "set_text", "slot_id": "running_header_1", "text": "BARRE DOUCHE NEW MODEL X2" },
+            { "op": "set_text", "slot_id": "page_number_0",   "text": "1" }
+          ]
+        }
+      }
+    ],
+    "warnings": [],
+    "stats": { "products_used": 2, "products_remaining": 0, "pages_kept": 1, "pages_deleted": 0 }
+  },
+
+  "rationale": "Comme l'extracteur n'a PAS detecte de product_slot (limitation V1 du Lot 4), on a juste 2 running_header qui contiennent les noms produits. On utilise set_text pour mettre les nouveaux noms. Le banner reste tel quel (texte deja correct). On renumerote le page_number a 1."
+}

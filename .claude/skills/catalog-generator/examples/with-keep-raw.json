@@ -1,0 +1,66 @@
+{
+  "_doc": "Few-shot : 1 cover (keep_raw, on touche pas) + 1 page produit avec un seul slot. Montre comment combiner les 2 modes.",
+
+  "input": {
+    "extracted_pages": [
+      {
+        "page_number": 0,
+        "page_size": { "width": 595.28, "height": 841.89 },
+        "slots": [
+          {
+            "type": "keep_page_raw",
+            "id": "cover",
+            "bbox": [0, 0, 595.28, 841.89],
+            "reason": "page de couverture du catalogue"
+          }
+        ]
+      },
+      {
+        "page_number": 5,
+        "page_size": { "width": 595.28, "height": 841.89 },
+        "slots": [
+          {
+            "type": "section_banner",
+            "id": "banner_0",
+            "bbox": [240, 0, 565, 35],
+            "label": { "text": "BARRES DE DOUCHES", "bbox": [260, 8, 540, 28], "font": "Almanach-Bold", "size": 18, "color": "#ffffff" }
+          },
+          {
+            "type": "running_header",
+            "id": "name_0",
+            "bbox": [50, 90, 250, 110],
+            "label": { "text": "ANCIEN PRODUIT", "bbox": [50, 90, 250, 110], "font": "Almanach-Bold", "size": 14, "color": "#1a1a1a" }
+          }
+        ]
+      }
+    ],
+    "products": [
+      { "name": "MITIGEUR LAVABO ATLAS", "ref": "999100", "color": "Chrome", "image_path": "images/atlas.jpg", "specs": [], "variants": [] }
+    ]
+  },
+
+  "expected_plan": {
+    "version": "1",
+    "pages": [
+      {
+        "source_page": 0,
+        "page_number": null,
+        "render": { "mode": "keep_raw" }
+      },
+      {
+        "source_page": 5,
+        "page_number": 1,
+        "render": {
+          "mode": "operations",
+          "operations": [
+            { "op": "set_text", "slot_id": "name_0", "text": "MITIGEUR LAVABO ATLAS" }
+          ]
+        }
+      }
+    ],
+    "warnings": ["page 5 : section_banner garde tel quel (BARRES DE DOUCHES correspond au produit fourni)"],
+    "stats": { "products_used": 1, "products_remaining": 0, "pages_kept": 2, "pages_deleted": 0 }
+  },
+
+  "rationale": "Cover (page 0) : keep_raw, page_number reste null. Page produit (page 5) : on remplace juste le name. Le banner n'est pas modifie car le contexte (BARRES DE DOUCHES) matche le type de produit. On ajoute un warning pour expliquer le choix."
+}

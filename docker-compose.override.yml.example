@@ -1,0 +1,35 @@
+# Override OPTIONNEL : active les enrichissements IA (descriptions marketing,
+# audits visuels, smart column-mapping, normalisation specs).
+#
+# Pre-requis :
+#   1. Builder l'image AVEC les CLIs IA :
+#        WITH_AI=1 docker compose build
+#   2. Etre authentifie sur le HOST :
+#        claude login           # ecrit ~/.claude/.credentials.json
+#        gemini                 # login Google (OAuth), ecrit ~/.gemini/
+#   3. Activer cet override :
+#        cp docker-compose.override.yml.example docker-compose.override.yml
+#        docker compose up -d
+#
+# 100% portable via ${HOME} (aucun chemin en dur). Ce fichier est gitignore.
+# Sans cet override, le pipeline deterministe tourne normalement (PDF complet,
+# enrichissements IA simplement absents).
+
+services:
+  app:
+    environment:
+      # HOME pointe vers le home de l'utilisateur `app` du container : les CLIs
+      # y cherchent leurs credentials (~/.claude, ~/.gemini).
+      - HOME=/home/app
+      # Cle API Gemini (text/vision). Optionnelle : si le fichier est absent,
+      # les features gemini-* se desactivent proprement.
+      - GEMINI_KEY_FILE=/run/secrets/gemini.key
+    volumes:
+      # Auth Claude (OAuth). RW : le CLI doit pouvoir REECRIRE
+      # ~/.claude/.credentials.json au refresh du token (sinon expiration ~6h).
+      - ${HOME}/.claude:/home/app/.claude
+      - ${HOME}/.claude.json:/home/app/.claude.json
+      # Auth Gemini CLI (OAuth abonnement Pro). RW : refresh du token (~1h).
+      - ${HOME}/.gemini:/home/app/.gemini
+      # Cle API Gemini (optionnelle), montee en lecture seule.
+      - ${HOME}/.gemini.key:/run/secrets/gemini.key:ro

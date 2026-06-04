@@ -1,0 +1,43 @@
+# docker-compose catalog-gen-app — pret a l'emploi pour un examinateur.
+#
+#   docker compose up --build           # image lean, pipeline deterministe complet
+#   open http://localhost:8080
+#
+# AUCUNE dependance a un chemin du host : tout est portable (Linux/macOS,
+# amd64/arm64). Les credentials IA sont OPTIONNELS et vivent dans
+# docker-compose.override.yml (cf .example) — jamais dans ce fichier de base.
+
+services:
+  app:
+    build:
+      context: .
+      args:
+        # Image lean par defaut. `WITH_AI=1 docker compose build` embarque
+        # Claude + Gemini + poppler pour les enrichissements IA.
+        WITH_AI: ${WITH_AI:-0}
+    image: catalog-gen-app:latest
+    container_name: catalog_gen_app
+    ports:
+      - "8080:8080"
+    volumes:
+      # Donnees runtime en volumes NOMMES : geres par Docker, proprietaire `app`
+      # herite de l'image (pas de galere de permissions non-root vs uid host).
+      # Les PDFs generes se recuperent via l'UI (lien de download signe HMAC),
+      # pas besoin d'acces au filesystem host.
+      - catalog_uploads:/app/uploads
+      - catalog_generated:/app/generated
+      - catalog_runs:/app/runs
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+    restart: unless-stopped
+    # Plafond ressources : evite qu'un PDF malforme ou un gros CSV ne consomme
+    # toute la RAM/CPU du host.
+    mem_limit: 4g
+    cpus: 2.0
+    # Le healthcheck (/api/health) est defini dans l'image (cf Dockerfile).
+
+volumes:
+  catalog_uploads:
+  catalog_generated:
+  catalog_runs:

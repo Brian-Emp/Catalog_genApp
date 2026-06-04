@@ -1,0 +1,26 @@
+# Mode DEVELOPPEMENT — hot-reload, AUCUN rebuild a chaque modif.
+#
+# A combiner avec le compose de base :
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+#   • Modif dans src/ public/ .claude/skills/  → ts-node-dev relance le serveur (live, ~1s).
+#   • Modif C++ dans pdf-engine/               → relancer avec --build (recompile le binaire).
+#
+# Le code est monte en volume (pas COPY) : l'image ne fige rien, tu edites tes
+# fichiers du host et le container voit les changements immediatement.
+
+services:
+  app:
+    image: catalog-gen-app:dev   # tag distinct du lean (catalog-gen-app:latest)
+    build:
+      target: dev            # surcharge la cible runner → dev (deps completes + watch)
+    environment:
+      - NODE_ENV=development
+    volumes:
+      # Sources montees → hot-reload. Les node_modules restent ceux de l'image
+      # (Linux-natif) : on ne monte PAS le node_modules du host (binaire macOS).
+      - ./src:/app/src
+      - ./public:/app/public
+      - ./.claude/skills:/app/.claude/skills
+      - ./templates:/app/templates
+      - ./tsconfig.json:/app/tsconfig.json

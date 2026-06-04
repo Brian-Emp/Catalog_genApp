@@ -1,0 +1,8 @@
+{
+  "_comment": "Overrides specifiques au catalogue de reference Catalogue A (Catalogue A). Envoye via le champ multipart template_config par tests/smoke.sh. Le defaut config/template_defaults.json reste neutre (pas de donnees Catalogue A).",
+  "family_ribbon_map": [
+    { "ribbon": "cuisine", "keywords": ["cuisine", "evier", "mitigeur", "kitchen"] },
+    { "ribbon": "salle de bains", "keywords": ["sanitaire", "bain", "douche", "lavabo", "salle", "wc", "bath", "shower"] }
+  ],
+  "residual_ref_pattern": "\\b\\d{6}\\s+\\d{7}\\b"
+}
