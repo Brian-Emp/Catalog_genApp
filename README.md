@@ -1,6 +1,6 @@
 # catalog-gen-app
 
-[![CI](https://github.com/Brian-Emp/Catalogue_genApp/actions/workflows/ci.yml/badge.svg)](https://github.com/Brian-Emp/Catalogue_genApp/actions/workflows/ci.yml)
+[![CI](https://github.com/Brian-Emp/Catalog_genApp/actions/workflows/ci.yml/badge.svg)](https://github.com/Brian-Emp/Catalog_genApp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Takes a **reference catalog PDF** + **product data** (CSV/XLSX) + **product images**, and regenerates a new PDF with the products substituted in — keeping the original layout, sections, table of contents and page numbering intact.
