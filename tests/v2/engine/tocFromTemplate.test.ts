@@ -26,6 +26,30 @@ describe('trimToCompletePhrase — fins de description tronquée', () => {
   it('préserve un point final existant', () => {
     expect(trimToCompletePhrase('Barres inox 60 cm.')).toBe('Barres inox 60 cm.');
   });
+  it('coupe une fin "préposition + quantité sans nom" ("en deux")', () => {
+    expect(trimToCompletePhrase('Barres de douche inox proposées en deux'))
+      .toBe('Barres de douche inox proposées.');
+  });
+  it('retire un nombre nu en fin (mesure coupée avant unité)', () => {
+    expect(trimToCompletePhrase('Barres inox ou inox+ABS noire, longueurs 60'))
+      .toBe('Barres inox ou inox+ABS noire.');
+  });
+  it('retire un nombre nu final même avec point (sortie modèle)', () => {
+    expect(trimToCompletePhrase('Barres inox chromées, modèles Maha et Solano, 60.'))
+      .toBe('Barres inox chromées, modèles Maha et Solano.');
+  });
+  it('préserve une phrase complète finie sur une unité', () => {
+    expect(trimToCompletePhrase('Barres inox chromées, deux longueurs 60 et 70 cm.'))
+      .toBe('Barres inox chromées, deux longueurs 60 et 70 cm.');
+  });
+  it('retire un mot de remplissage en fin ("disponibles")', () => {
+    expect(trimToCompletePhrase('Barres de douches Tamari en inox, disponibles'))
+      .toBe('Barres de douches Tamari en inox.');
+  });
+  it('cascade : "…en 60 à" → retire à, puis 60, puis en, puis filler', () => {
+    expect(trimToCompletePhrase('Barres de douche inox TAMARI, disponibles en 60 à'))
+      .toBe('Barres de douche inox TAMARI.');
+  });
   it('coupe une parenthèse ouverte non fermée', () => {
     expect(trimToCompletePhrase('Deux barres de douche en Inox (dont'))
       .toBe('Deux barres de douche en Inox.');

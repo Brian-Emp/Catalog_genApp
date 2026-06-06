@@ -107,18 +107,19 @@ ${sectionList}
 
 REGLES STRICTES :
 - 1 phrase finie par un point pour CHAQUE section listee ci-dessus.
-- TRES concise : 45-75 caracteres MAX, doit tenir sur UNE seule ligne courte (sinon coupee). Agrege les valeurs de facon compacte (ex "bras 60-70 cm, Ø 22-25 mm"). Mieux vaut 2 faits COMPLETS qu'une liste tronquee. Ne finis jamais sur un chiffre sans unite (ecris "60 cm" pas "60").
+- RICHE MAIS COMPLETE : 80-110 caracteres, tient sur 2 lignes courtes MAX du sommaire. C'est une phrase ENTIERE, finie par un point, qui agrege 2 a 3 faits concrets et se termine sur un FAIT (matiere, valeur, finition) — JAMAIS sur une clause en suspens, un chiffre sans unite ("60 cm" pas "60"), ou un mot de quantite seul ("...en deux", "...1 ou 2" → toujours suivi du nom : "1 ou 2 bacs"). Mieux vaut 2 faits COMPLETS qu'une liste tronquee.
+- N'INCLUS PAS les noms de modeles individuels (ex "Tamari", "Solano", "Maha") : decris la GAMME globalement (matiere + dimensions agregees), pas produit par produit. Ces noms gaspillent la place et coupent la phrase.
 - S'appuie sur des FAITS concrets : matiere, dimensions, finition, raccord, nb de modeles, puissance, debit, etc.
 - INCLUS les VALEURS CHIFFREES presentes (longueurs, diametres, profondeur, debit, puissance, garantie…) — pas seulement le type ou la matiere. AGREGE les variations entre produits (ex "longueurs 60 a 70 cm", "Ø 22-25 mm", "1 ou 2 bacs") plutot que de rester vague ("avec longueurs de bras") ou de ne citer qu'un seul produit.
 - INTERDIT : "qualite", "robuste", "fiable", "durable", "ideal", "pour vos installations", "decouvrez", argumentaire vente.
 - INTERDIT aussi les mots de remplissage vides : "disponible(s)", "varie(s)", "divers", "plusieurs modeles" seul, "gamme complete", "differents". Ne JAMAIS finir la phrase sur un mot vague ou de liaison : la phrase doit se terminer sur un FAIT (matiere, valeur, finition).
 - Ton catalogue pro factuel.
 
-EXEMPLE BON : "Barres de douche inox, longueurs 60 a 70 cm, Ø 22-25 mm, support coulissant et inclinable."
-EXEMPLE BON : "Eviers inox 304 a 1 ou 2 bacs, profondeur 180 mm, avec ou sans egouttoir."
-EXEMPLE MAUVAIS (vague, valeurs manquantes) : "Trois modeles en inox avec longueurs de bras."
+EXEMPLE BON (~90 car., 2 lignes, complet) : "Barres de douche inox, longueurs 60 a 70 cm, Ø 22-25 mm, support coulissant et inclinable."
+EXEMPLE BON (~80 car., 2 lignes, complet) : "Eviers inox 304 a 1 ou 2 bacs, profondeur 180 mm, avec ou sans egouttoir."
+EXEMPLE MAUVAIS (coupe/suspendu) : "Barres de douche inox proposees en deux." → ecrire "Barres de douche inox, 2 longueurs 60 et 70 cm, Ø 22-25 mm."
+EXEMPLE MAUVAIS (noms de modeles) : "Barres Tamari et Solano en inox." → decrire la gamme : "Barres de douche inox, 60 a 70 cm, support coulissant."
 EXEMPLE MAUVAIS (marketing) : "Decouvrez nos eviers ideaux pour vos installations."
-EXEMPLE MAUVAIS (filler en fin) : "Barres de douche en inox, disponibles." → ecrire plutot "Barres de douche inox, longueurs 60-70 cm, Ø 22-25 mm."
 
 REPONDS UNIQUEMENT en JSON pur (pas de markdown, pas de prose), schema :
 {

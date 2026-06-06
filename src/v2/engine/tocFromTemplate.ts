@@ -493,7 +493,10 @@ export function buildTocFromTemplate(
     const descSize = refLabel.size * 0.5;
     const lineHeight = descSize * 1.35;
     const x0 = refLabel.bbox[0] + sectionIndent + 4;
-    const x1 = Math.max(refPage.bbox[0] - 6, x0 + 50);
+    // La description est SOUS le label : la colonne du numéro de page (à droite,
+    // sur la ligne du label) est vide ici → on étend jusqu'au bord droit du
+    // numéro (au lieu de s'arrêter avant), ~+30% de largeur = moins de coupures.
+    const x1 = Math.max(refPage.bbox[2], refPage.bbox[0] - 6, x0 + 50);
     const maxWidth = x1 - x0;
     const descColor = lightenHex(refLabel.color, 0.55);
     const isLastInChunk = i === chunk.length - 1;
@@ -501,10 +504,16 @@ export function buildTocFromTemplate(
       ? entries[entries.length - 1].labelSpan.bbox[3] + 30
       : yFirst + (i + 1) * yStep;
     const availH = Math.max(0, nextRowTop - labelBottom - 6);
-    const maxLines = Math.max(1, Math.floor(availH / lineHeight));
+    // Arrondi (pas floor) : si ~1.7 ligne tient, on autorise 2 lignes — le pas
+    // entre entrées (yStep) est dimensionné pour 2 lignes de description, donc
+    // pas de chevauchement avec l'entrée suivante.
+    const maxLines = Math.max(1, Math.round(availH / lineHeight));
     const all = wrapToLines(desc, maxWidth, descSize);
     const lines = all.slice(0, maxLines);
-    if (lines.length > 0 && lines.length < all.length) {
+    // Nettoie TOUJOURS la dernière ligne (pas seulement quand tronquée) : le
+    // modèle produit parfois lui-même une fin incomplète ("…, 60.", clause
+    // suspendue). trimToCompletePhrase garantit une phrase finie sur un fait.
+    if (lines.length > 0) {
       const cleaned = trimToCompletePhrase(lines[lines.length - 1]);
       // Si le nettoyage vide la ligne (ex : 1 seul mot faible), on garde l'original.
       lines[lines.length - 1] = cleaned || lines[lines.length - 1].trimEnd();
@@ -717,6 +726,16 @@ const TRUNC_WEAK_WORDS = new Set([
   'mes', 'notre', 'nos', 'votre', 'vos', 'd', 'l', 'qu', 'n', 's', 'm', 't', 'j', 'c',
 ]);
 
+/** Mots de remplissage vides : une phrase ne doit pas se TERMINER dessus
+ *  (interdits par le prompt mais le modèle les produit parfois). Comparés
+ *  sans accents. */
+const TRUNC_FILLER = new Set([
+  'disponible', 'disponibles', 'varie', 'varies', 'divers', 'diverse', 'diverses',
+  'different', 'differents', 'differente', 'differentes', 'plusieurs', 'multiple',
+  'multiples', 'assortis', 'variees', 'variee',
+]);
+const deaccent = (s: string): string => s.normalize('NFD').replace(/\p{Diacritic}/gu, '');
+
 /** Nettoie la fin d'une phrase TRONQUÉE pour qu'elle ne se termine pas sur un
  *  fragment suspendu (ponctuation, mot de liaison, élision "d'une"/"l'…"). Retire
  *  itérativement ponctuation + mots faibles finaux, puis pose un point.
@@ -729,41 +748,52 @@ export function trimToCompletePhrase(line: string): string {
     const idx = t.lastIndexOf('(');
     if (idx >= 0) t = t.slice(0, idx).trimEnd();
   }
-  // 2. Drop d'une CLAUSE de mesure incomplète en fin (lead-in coupé avant sa
-  //    valeur) : "…, longueurs 60-70 cm, Ø" → "…, longueurs 60-70 cm" ;
-  //    "…, longueurs" → on retire la clause. Une clause = segment après la
-  //    dernière virgule. On ne droppe QUE si elle n'a pas de chiffre ET est soit
-  //    un symbole/lead-in de mesure, soit très courte (≤2 mots significatifs).
+  // BOUCLE EXTERNE : retirer un fragment en révèle souvent un autre (ex
+  // "…en 60 à" → on enlève "à", ce qui révèle "60" nu, qui révèle "en", qui
+  // révèle "disponibles"…). On répète TOUT le nettoyage jusqu'à stabilité.
   const MEASURE_LEAD = /\b(ø|diam[eè]tre|longueur|largeur|hauteur|profondeur|d[ée]bit|puissance|garantie|capacit)/i;
-  for (let guard = 0; guard < 4; guard++) {
-    const ci = t.lastIndexOf(',');
-    if (ci < 0) break;
-    const clause = t.slice(ci + 1).trim().replace(/[.…\s]+$/u, '');
-    if (!clause) { t = t.slice(0, ci).trimEnd(); continue; }
-    const hasDigit = /\d/.test(clause);
-    const isMeasureLead = MEASURE_LEAD.test(clause) && !hasDigit;
-    const isShortSymbol = !hasDigit && clause.replace(/[^\p{L}\p{N}]/gu, '').length <= 2;
-    if (isMeasureLead || isShortSymbol) {
-      t = t.slice(0, ci).trimEnd();
-    } else break;
-  }
-  // 3. Retire en boucle : ponctuation/ouvrants finaux + mots de liaison + élisions.
   const TAIL_PUNCT = /[\s,;:.…–—\-(«»"'’]+$/u;
-  let prev = '';
-  while (t !== prev && t.length > 0) {
-    prev = t;
-    t = t.replace(TAIL_PUNCT, '');
-    const m = t.match(/(\S+)$/u);
-    if (!m) break;
-    const token = m[1];
-    // Mot nettoyé de sa ponctuation collée (ex : "(dont" → "dont").
-    const cleanTok = token.replace(/^[^\p{L}\p{N}]+/u, '').replace(/[^\p{L}\p{N}'’]+$/u, '');
-    // Élision : "d'une" → segment après la dernière apostrophe ("une").
-    const segs = cleanTok.replace(/[’']/g, "'").toLowerCase().split("'");
-    const lastSeg = segs[segs.length - 1];
-    const isWeak = cleanTok === '' || TRUNC_WEAK_WORDS.has(lastSeg);
-    if (!isWeak) break;
-    t = t.slice(0, t.length - token.length).trimEnd();
+  let outerPrev = '';
+  while (t !== outerPrev && t.length > 0) {
+    outerPrev = t;
+    // a. Nombre NU en fin (mesure coupée avant son unité) : "…longueurs 60" →
+    //    retire le chiffre orphelin. On NE touche PAS "…60 cm." (unité présente).
+    t = t.replace(/[\s,;:.…]*\b\d+(?:[.,]\d+)?[\s.…]*$/u, '').trimEnd();
+    // b. CLAUSE de mesure incomplète en fin (lead-in coupé avant sa valeur) :
+    //    "…, longueurs" / "…, Ø" → on retire la clause (segment après la dernière
+    //    virgule) si pas de chiffre ET (lead-in de mesure OU ≤2 caractères).
+    for (let guard = 0; guard < 4; guard++) {
+      const ci = t.lastIndexOf(',');
+      if (ci < 0) break;
+      const clause = t.slice(ci + 1).trim().replace(/[.…\s]+$/u, '');
+      if (!clause) { t = t.slice(0, ci).trimEnd(); continue; }
+      const hasDigit = /\d/.test(clause);
+      const isMeasureLead = MEASURE_LEAD.test(clause) && !hasDigit;
+      const isShortSymbol = !hasDigit && clause.replace(/[^\p{L}\p{N}]/gu, '').length <= 2;
+      if (isMeasureLead || isShortSymbol) { t = t.slice(0, ci).trimEnd(); } else break;
+    }
+    // c. "préposition/conjonction + quantité SANS son nom" : "…en deux", "…ou 2".
+    t = t.replace(
+      /[\s,;:.…]*\b(?:en|ou|et|de|du|des|à|a|avec)\s+(?:\d+|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\s*$/iu,
+      '',
+    ).trimEnd();
+    // d. Ponctuation/ouvrants + mots de liaison + filler + élisions en fin.
+    let prev = '';
+    while (t !== prev && t.length > 0) {
+      prev = t;
+      t = t.replace(TAIL_PUNCT, '');
+      const m = t.match(/(\S+)$/u);
+      if (!m) break;
+      const token = m[1];
+      const cleanTok = token.replace(/^[^\p{L}\p{N}]+/u, '').replace(/[^\p{L}\p{N}'’]+$/u, '');
+      const segs = cleanTok.replace(/[’']/g, "'").toLowerCase().split("'");
+      const lastSeg = segs[segs.length - 1];
+      const isWeak = cleanTok === ''
+        || TRUNC_WEAK_WORDS.has(lastSeg)
+        || TRUNC_FILLER.has(deaccent(lastSeg));
+      if (!isWeak) break;
+      t = t.slice(0, t.length - token.length).trimEnd();
+    }
   }
   t = t.replace(TAIL_PUNCT, '');
   if (t.length > 0 && !/[.!?]$/.test(t)) t += '.';
