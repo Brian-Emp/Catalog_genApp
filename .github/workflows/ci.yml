@@ -5,6 +5,10 @@ on:
     branches: [main, finalisation]
   pull_request:
 
+# Least privilege: the default GITHUB_TOKEN is read-only for this workflow.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: typecheck + tests
@@ -23,6 +27,17 @@ jobs:
 
       - name: Typecheck
         run: npx tsc --noEmit
+
+      - name: Lint
+        # Fails on errors only; the existing warnings are surfaced for
+        # incremental cleanup, not enforced.
+        run: npm run lint
+
+      - name: Audit (high+ only, advisory)
+        # Advisory by design (|| true): surfaces high/critical deps in the logs
+        # without breaking the build on uncontrollable upstream advisories. The
+        # remaining moderates are non-reachable transitives in exceljs (uuid).
+        run: npm audit --audit-level=high || true
 
       - name: Tests
         # Unit + integration TS suite (no network). The Docker/C++ end-to-end

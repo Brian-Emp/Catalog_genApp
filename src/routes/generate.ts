@@ -8,6 +8,8 @@ import { buildProductInputs, splitMultiValue } from '../services/productsAdapter
 import { substituteCatalogEngine } from '../v2/engineOrchestrator';
 import { clearProgress, getProgress, markDone, markError, setProgress } from '../v2/progressTracker';
 import { signedUrl } from './downloadToken';
+import { requireAuth, isAuthorized } from '../middleware/auth';
+import { errorBody, failMessage, isProd } from '../middleware/httpError';
 import type { ExtractedFile, FileCategory, ProductInput } from '../types';
 import type { PlanProduct } from '../v2/types';
 
@@ -153,10 +155,9 @@ generateRouter.get('/estimate', async (req, res) => {
     const result = await estimateGenerationDuration({ productsCount, withDescriptions });
     res.json(result);
   } catch (err) {
-    res.status(500).json({
-      error: 'estimation indisponible',
-      detail: err instanceof Error ? err.message : String(err),
-    });
+    res.status(500).json(
+      errorBody('estimation indisponible', { detail: err instanceof Error ? err.message : String(err) }),
+    );
   }
 });
 
@@ -174,8 +175,8 @@ generateRouter.get('/gemini/health', async (_req, res) => {
     res.status(500).json({
       ok: false,
       status: 'unknown',
-      error: err instanceof Error ? err.message : String(err),
       hint: 'Erreur interne lors du check Gemini.',
+      ...(isProd() ? {} : { error: err instanceof Error ? err.message : String(err) }),
     });
   }
 });
@@ -189,16 +190,22 @@ generateRouter.get('/gemini/health', async (_req, res) => {
 generateRouter.get('/gemini/stats', async (req, res) => {
   try {
     const { getStats, resetStats, formatStats, getRecentRecords } = await import('../v2/gemini/stats');
-    if (req.query.reset === '1') resetStats();
+    if (req.query.reset === '1') {
+      if (!isAuthorized(req)) {
+        res.status(401).json({ error: 'Authentification requise pour reset.' });
+        return;
+      }
+      resetStats();
+    }
     res.json({
       summary: getStats(),
       formatted: formatStats(),
       recentCalls: getRecentRecords(20),
     });
   } catch (err) {
-    res.status(500).json({
-      error: err instanceof Error ? err.message : String(err),
-    });
+    res.status(500).json(
+      errorBody('Erreur interne.', { detail: err instanceof Error ? err.message : String(err) }),
+    );
   }
 });
 
@@ -210,12 +217,18 @@ generateRouter.get('/gemini/stats', async (req, res) => {
 generateRouter.get('/gemini/circuit', async (req, res) => {
   try {
     const { getCircuitState, resetCircuit } = await import('../v2/gemini/circuitBreaker');
-    if (req.query.reset === '1') resetCircuit();
+    if (req.query.reset === '1') {
+      if (!isAuthorized(req)) {
+        res.status(401).json({ error: 'Authentification requise pour reset.' });
+        return;
+      }
+      resetCircuit();
+    }
     res.json({ state: getCircuitState() });
   } catch (err) {
-    res.status(500).json({
-      error: err instanceof Error ? err.message : String(err),
-    });
+    res.status(500).json(
+      errorBody('Erreur interne.', { detail: err instanceof Error ? err.message : String(err) }),
+    );
   }
 });
 
@@ -241,9 +254,9 @@ generateRouter.get('/gemini', async (_req, res) => {
       circuit: getCircuitState(),
     });
   } catch (err) {
-    res.status(500).json({
-      error: err instanceof Error ? err.message : String(err),
-    });
+    res.status(500).json(
+      errorBody('Erreur interne.', { detail: err instanceof Error ? err.message : String(err) }),
+    );
   }
 });
 
@@ -256,7 +269,7 @@ generateRouter.get('/gemini', async (_req, res) => {
  *  Modules teste : smartMapping, specNormalizer, imageMatcher, descriptions.
  *  Duree typique : 4-8s.
  */
-generateRouter.get('/gemini/smoke', async (_req, res) => {
+generateRouter.get('/gemini/smoke', requireAuth, async (_req, res) => {
   try {
     const { isGeminiAvailable } = await import('../v2/gemini/client');
     if (!(await isGeminiAvailable())) {
@@ -353,7 +366,7 @@ generateRouter.get('/gemini/smoke', async (_req, res) => {
   } catch (err) {
     res.status(500).json({
       ok: false,
-      error: err instanceof Error ? err.message : String(err),
+      ...errorBody('Smoke Gemini en échec', { detail: err instanceof Error ? err.message : String(err) }),
     });
   }
 });
@@ -365,7 +378,7 @@ generateRouter.get('/gemini/smoke', async (_req, res) => {
  *
  *  ATTENTION : lent (Pro ~30-45s/page). Mode experimental opt-in.
  */
-generateRouter.post('/layout', enforceTotalSize, upload.any(), async (req, res) => {
+generateRouter.post('/layout', requireAuth, enforceTotalSize, upload.any(), async (req, res) => {
   res.setTimeout(20 * 60 * 1000); // Pro lent : large marge
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (!files.length) {
@@ -406,7 +419,8 @@ generateRouter.post('/layout', enforceTotalSize, upload.any(), async (req, res) 
     });
     await cleanupFiles(uploadedPaths);
     if (!result.ok) {
-      res.status(500).json({ error: 'Echec layout gen', notes: result.notes });
+      // notes = détail orchestrateur (chemins/erreurs internes) → masqué en prod.
+      res.status(500).json(errorBody('Echec layout gen', { debug: { notes: result.notes } }));
       return;
     }
     res.json({
@@ -415,12 +429,12 @@ generateRouter.post('/layout', enforceTotalSize, upload.any(), async (req, res) 
       pageCount: result.pageCount,
       productCount: built.products.length,
       durationMs: result.durationMs,
-      notes: result.notes,
       adapterWarnings: built.warnings,
+      ...(isProd() ? {} : { notes: result.notes }),
     });
   } catch (err) {
     await cleanupFiles(uploadedPaths);
-    res.status(500).json({ error: `Echec layout : ${(err as Error).message}` });
+    res.status(500).json({ error: failMessage('Echec layout', err) });
   }
 });
 
@@ -469,8 +483,9 @@ generateRouter.post('/generate', enforceTotalSize, upload.any(), async (req, res
     );
   } catch (err) {
     await cleanupFiles(uploadedPaths);
-    markError(jobId, `Echec extraction : ${(err as Error).message}`);
-    res.status(500).json({ error: `Echec extraction : ${(err as Error).message}` });
+    const msg = failMessage('Echec extraction', err);
+    markError(jobId, msg);
+    res.status(500).json({ error: msg });
     return;
   }
 
@@ -496,8 +511,9 @@ generateRouter.post('/generate', enforceTotalSize, upload.any(), async (req, res
     await fs.mkdir(GEN_DIR, { recursive: true });
   } catch (err) {
     await cleanupFiles(uploadedPaths);
-    markError(jobId, (err as Error).message);
-    res.status(500).json({ error: `Echec creation repertoire de sortie : ${(err as Error).message}` });
+    const msg = failMessage('Echec creation repertoire de sortie', err);
+    markError(jobId, msg);
+    res.status(500).json({ error: msg });
     return;
   }
 
@@ -514,11 +530,9 @@ generateRouter.post('/generate', enforceTotalSize, upload.any(), async (req, res
     });
   } catch (err) {
     await cleanupFiles([...uploadedPaths, workDir]);
-    markError(jobId, (err as Error).message);
-    res.status(500).json({
-      error: `Echec preparation des produits : ${(err as Error).message}`,
-      rejectedFiles,
-    });
+    const msg = failMessage('Echec preparation des produits', err);
+    markError(jobId, msg);
+    res.status(500).json({ error: msg, rejectedFiles });
     return;
   }
   if (!built.products.length) {
@@ -595,11 +609,9 @@ generateRouter.post('/generate', enforceTotalSize, upload.any(), async (req, res
     });
   } catch (err) {
     await cleanupFiles([...uploadedPaths, workDir, outPdf]);
-    markError(jobId, (err as Error).message);
-    res.status(500).json({
-      error: `Echec moteur V2 : ${(err as Error).message}`,
-      rejectedFiles,
-    });
+    const msg = failMessage('Echec moteur V2', err);
+    markError(jobId, msg);
+    res.status(500).json({ error: msg, rejectedFiles });
     return;
   }
   if (!result.ok) {
@@ -621,12 +633,17 @@ generateRouter.post('/generate', enforceTotalSize, upload.any(), async (req, res
     markError(jobId, userError);
     res.status(500).json({
       error: userError,
-      details: errMsg,
       rejectedFiles,
       adapterWarnings: built.warnings,
       stats: result.stats,
-      orchestratorErrors: result.errors,
-      orchestratorWarnings: result.warnings,
+      // Détail technique (chemins internes, erreurs orchestrateur) masqué en prod.
+      ...(isProd()
+        ? {}
+        : {
+            details: errMsg,
+            orchestratorErrors: result.errors,
+            orchestratorWarnings: result.warnings,
+          }),
     });
     return;
   }

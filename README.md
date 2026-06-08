@@ -99,6 +99,27 @@ change (`pdf-engine/`) requires re-running with `--build` to recompile the binar
 Useful query flags on `POST /api/generate`: `?audit=0`, `?descriptions=0`,
 `?enrich=0`, `?coherence=1` toggle individual AI steps.
 
+## Security
+
+The app targets a **trusted single-user network** and is open by default for
+local use. For an exposed deployment, harden it via environment (see
+`.env.example`):
+
+- **Auth** — set `ADMIN_TOKEN` to require a shared token on the mutating /
+  costly endpoints (`DELETE /api/history`, `GET /api/gemini/smoke`, `?reset=1`).
+  Clients send `X-Auth-Token: <token>` or `Authorization: Bearer <token>`.
+- **Rate limiting** — per-IP limits on `/api` (`RATE_MAX_API`), the costly
+  `POST /api/generate` (`RATE_MAX_GENERATE`) and `GET /api/gemini/smoke`
+  (`RATE_MAX_SMOKE`). The health probe and progress polling are exempt.
+- **Production mode** — `NODE_ENV=production` collapses error responses to
+  generic messages (no internal paths / stack traces leak).
+- **Headers** — `helmet` sets a strict CSP, anti-clickjacking
+  (`X-Frame-Options`/`frame-ancestors`), `nosniff`, etc.
+- **Signed downloads** — generated PDFs are served behind a constant-time HMAC
+  token; set `DOWNLOAD_SECRET` (fixed) and optionally `DOWNLOAD_TTL_MS` (expiry).
+- **Uploads** — size/entry caps, zip-bomb guards, path-traversal defenses, and a
+  pixel cap on decoded images in the native renderer.
+
 ## Tests
 
 ```bash

@@ -61,14 +61,19 @@ RUN apt-get update \
 
 # Mapping TARGETARCH (BuildKit) -> nom d'archive bblanchon : amd64 -> x64,
 # arm64 -> arm64. Le tag GitHub est "chromium/<version>" (%2F = / encode).
+# Supply-chain : le tarball est verifie par sha256 (en plus de TLS + version
+# pin). Pour bumper PDFIUM_VERSION, recalculer les 2 sommes :
+#   curl -fsSL <url> | sha256sum
 RUN case "${TARGETARCH}" in \
-      amd64) PDFIUM_ARCH=x64 ;; \
-      arm64) PDFIUM_ARCH=arm64 ;; \
+      amd64) PDFIUM_ARCH=x64;   PDFIUM_SHA256=ae0e276bcdf276dca2746adb4780f79949620e5c655973ca252a3994bc516a13 ;; \
+      arm64) PDFIUM_ARCH=arm64; PDFIUM_SHA256=b063f5244586f5e0c025cd4d74dd10f75bbb41e28bcdc1032349ca27814a06cf ;; \
       *) echo "Architecture non supportee: ${TARGETARCH}"; exit 1 ;; \
     esac \
  && mkdir -p /opt/pdfium \
- && curl -fsSL "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F${PDFIUM_VERSION}/pdfium-linux-${PDFIUM_ARCH}.tgz" \
-    | tar xz -C /opt/pdfium
+ && curl -fsSL -o /tmp/pdfium.tgz "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F${PDFIUM_VERSION}/pdfium-linux-${PDFIUM_ARCH}.tgz" \
+ && echo "${PDFIUM_SHA256}  /tmp/pdfium.tgz" | sha256sum -c - \
+ && tar xz -C /opt/pdfium -f /tmp/pdfium.tgz \
+ && rm -f /tmp/pdfium.tgz
 
 COPY pdf-engine/ ./
 
@@ -127,6 +132,10 @@ RUN ldconfig
 #   - Gemini CLI (officiel Google), version PINNEE
 # Securite : install.sh recupere en TLS strict (--proto =https --tlsv1.2) ; la
 # chaine de cert garantit l'origine claude.ai. Bump les ARG apres test local.
+# Residu supply-chain ASSUME (opt-in WITH_AI=1 uniquement, l'image lean
+# distribuee n'est PAS concernee) : l'installeur officiel claude.ai et le
+# paquet npm gemini-cli ne sont pas verifies par checksum (installeur mouvant
+# a chaque release). Confiance = TLS + origine + version pinnee.
 ARG WITH_AI=0
 ARG CLAUDE_VERSION=2.1.128
 ARG GEMINI_CLI_VERSION=0.44.1

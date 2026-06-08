@@ -1,0 +1,6 @@
+dist
+node_modules
+coverage
+pdf-engine
+tests/fixtures
+*.md

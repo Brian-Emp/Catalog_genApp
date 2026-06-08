@@ -525,12 +525,39 @@ static void applyOpDrawCircle(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op)
 // GenerateContent. Le path stb decode tout de suite en bitmap qu'on copie
 // dans un buffer PDFium possede par PDFium (independant des chargements
 // suivants).
+// Plafond de pixels avant decode : borne l'allocation (w*h*4 octets) face a une
+// image-bombe (ex PNG 64000x64000 = 16 Go RGBA). 64 MP (~256 Mo RGBA) couvre
+// tout scan produit legitime tout en bloquant les decompression bombs.
+static constexpr long long kMaxImagePixels = 64LL * 1000 * 1000;
+
 static bool loadImageIntoObj(FPDF_DOCUMENT doc, FPDF_PAGEOBJECT img, const fs::path& full) {
+  // SECURITE : lit d'abord les dimensions SANS decoder (stbi_info), pour
+  // refuser une image hors plafond AVANT que stb_image n'alloue le buffer.
+  // Si stbi_info echoue, on REFUSE (plutot que de laisser stbi_load decoder
+  // a l'aveugle) : ainsi le plafond est une vraie garantie, pas un best-effort.
+  int iw = 0, ih = 0, ic = 0;
+  if (!stbi_info(full.string().c_str(), &iw, &ih, &ic)) {
+    std::cerr << "draw_image: stbi_info echec (entete illisible), refus avant decode "
+              << full << "\n";
+    return false;
+  }
+  if (iw <= 0 || ih <= 0
+      || static_cast<long long>(iw) * static_cast<long long>(ih) > kMaxImagePixels) {
+    std::cerr << "draw_image: image refusee (dimensions " << iw << "x" << ih
+              << " > plafond " << kMaxImagePixels << " px)\n";
+    return false;
+  }
   int w = 0, h = 0, channels = 0;
   unsigned char* pixels = stbi_load(full.string().c_str(), &w, &h, &channels, 4);  // force RGBA
   if (!pixels) {
     std::cerr << "draw_image: stb_image n'a pas pu decoder " << full
               << " (" << stbi_failure_reason() << ")\n";
+    return false;
+  }
+  // Defense en profondeur : re-borne apres decode (si stbi_info a sous-estime).
+  if (static_cast<long long>(w) * static_cast<long long>(h) > kMaxImagePixels) {
+    std::cerr << "draw_image: image trop grande apres decode (" << w << "x" << h << ")\n";
+    stbi_image_free(pixels);
     return false;
   }
   // PDFium attend BGRA pour les bitmaps. stb donne RGBA.

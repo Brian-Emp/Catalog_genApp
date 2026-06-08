@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { signedUrl } from './downloadToken';
+import { requireAuth } from '../middleware/auth';
 
 export const historyRouter: Router = Router();
 
@@ -171,7 +172,7 @@ async function deleteOneStamp(stamp: string): Promise<boolean> {
   return true;
 }
 
-historyRouter.delete('/history', async (req, res) => {
+historyRouter.delete('/history', requireAuth, async (req, res) => {
   const pdf = String(req.query.pdf ?? '').trim();
   if (pdf) {
     const m = PDF_RE.exec(pdf);
