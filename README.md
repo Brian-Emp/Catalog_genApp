@@ -103,12 +103,27 @@ Useful query flags on `POST /api/generate`: `?audit=0`, `?descriptions=0`,
 
 ```bash
 npm test          # Vitest — 1200+ unit/integration tests, no network
-npm run smoke     # live E2E against /api/generate (requires a running container + AI)
+npm run smoke     # live E2E against /api/generate (requires a running container)
 ```
 
-The smoke test needs three fixtures in `tests/fixtures/` (gitignored — large and
-potentially proprietary): `template.pdf`, `data.xlsx`, `assets.zip`. Drop them in
-and run `npm run smoke`.
+### Synthetic fixtures — runs with zero client data
+
+A fully **synthetic, fictional** fixture set is committed under
+`tests/fixtures/synthetic/` (`template.pdf` + `data.xlsx` + `assets.zip`). It
+contains no brand, no real product and no client reference, and it exercises the
+whole deterministic pipeline (extract → classify → substitute → renumber → render).
+
+```bash
+docker compose up --build       # start the container
+npm run smoke                   # runs end-to-end against the synthetic fixtures
+```
+
+`npm run smoke` automatically falls back to these fixtures (with AI disabled, so
+no credentials are needed) when no real ones are present — so it works out of the
+box. Regenerate them with `npm run fixtures:synth`.
+
+To smoke-test your own catalog instead, drop the real (gitignored) `template.pdf`,
+`data.xlsx` and `assets.zip` into `tests/fixtures/`; the smoke uses them when present.
 
 ## Project structure
 

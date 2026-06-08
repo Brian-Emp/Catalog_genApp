@@ -10,7 +10,8 @@
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "smoke": "bash tests/smoke.sh"
+    "smoke": "bash tests/smoke.sh",
+    "fixtures:synth": "node scripts/buildSyntheticFixtures.cjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.14",

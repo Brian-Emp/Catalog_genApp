@@ -1,3 +1,7 @@
 *
 !.gitignore
 !template_config.json
+# Synthetic, fully fictional fixtures — safe to commit (no client data).
+# Regenerate with: npm run fixtures:synth
+!synthetic/
+!synthetic/**

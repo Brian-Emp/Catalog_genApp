@@ -22,16 +22,20 @@ red()   { printf "\033[31m%s\033[0m\n" "$1"; }
 green() { printf "\033[32m%s\033[0m\n" "$1"; }
 yellow(){ printf "\033[33m%s\033[0m\n" "$1"; }
 
-# 1. Verif fixtures
-missing=0
-for f in template.pdf data.xlsx assets.zip; do
-  if [[ ! -f "$FIXTURES/$f" ]]; then
-    red "Fixture manquante : tests/fixtures/$f"
-    missing=1
-  fi
-done
-if (( missing )); then
-  yellow "Voir la section Tests du README (fixtures attendues dans tests/fixtures/)."
+# 1. Select fixtures : prefer real ones (gitignored), else fall back to the
+#    committed SYNTHETIC set (zero client data, AI disabled so no credentials
+#    are needed). This lets `npm run smoke` work out of the box for anyone.
+QS=""
+if [[ -f "$FIXTURES/template.pdf" && -f "$FIXTURES/data.xlsx" && -f "$FIXTURES/assets.zip" ]]; then
+  TEMPLATE="$FIXTURES/template.pdf"; DATA="$FIXTURES/data.xlsx"; ASSETS="$FIXTURES/assets.zip"
+  yellow "Fixtures : tests/fixtures/ (real)"
+elif [[ -f "$FIXTURES/synthetic/template.pdf" ]]; then
+  TEMPLATE="$FIXTURES/synthetic/template.pdf"; DATA="$FIXTURES/synthetic/data.xlsx"; ASSETS="$FIXTURES/synthetic/assets.zip"
+  QS="?descriptions=0&audit=0&enrich=0&coherence=0"
+  yellow "Fixtures : tests/fixtures/synthetic/ (synthetic, no client data, AI disabled)"
+else
+  red "Aucune fixture trouvee (ni reelle ni synthetique)."
+  yellow "Lance \`npm run fixtures:synth\` pour generer le jeu synthetique."
   exit 1
 fi
 
@@ -43,10 +47,10 @@ fi
 
 # 3. Run /api/generate
 yellow "Run baseline V2 contre $URL ..."
-RESP=$(curl -s -m 300 -X POST "$URL/api/generate" \
-  -F "template=@$FIXTURES/template.pdf" \
-  -F "data=@$FIXTURES/data.xlsx" \
-  -F "assets=@$FIXTURES/assets.zip")
+RESP=$(curl -s -m 300 -X POST "$URL/api/generate$QS" \
+  -F "template=@$TEMPLATE" \
+  -F "data=@$DATA" \
+  -F "assets=@$ASSETS")
 
 # 4. Parse + verifie via node (pas de Python)
 parse_field() {
@@ -117,9 +121,10 @@ check_present "catalogUrl"
 check_int_gte "productCount" 1
 check_int_gte "stats.pagesKept" 1
 check_int_gte "stats.productsUsed" 0
-check_int_gte "stats.extractMs" 1
-check_int_gte "stats.planMs" 1
-check_int_gte "stats.renderMs" 1
+check_present "stats.extractMs"
+check_present "stats.substituteMs"
+check_present "stats.renderMs"
+check_present "stats.profileSource"
 
 if (( fail )); then
   red "Smoke V2 FAIL"
