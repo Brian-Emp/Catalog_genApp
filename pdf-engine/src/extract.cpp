@@ -1,19 +1,19 @@
-// Implementation de la sous-commande "extract".
+// Implementation of the "extract" subcommand.
 //
-// Strategie :
-// 1. Init PDFium, ouvrir le PDF source.
-// 2. Pour chaque page :
-//    a. Recuperer page_size (width, height).
-//    b. Iterer les page objects PDFium :
-//       - TEXT objects -> text_span (typage heuristique : section_banner
-//         si gros texte en haut, page_number si petit chiffre en pied,
-//         running_header sinon).
-//       - IMAGE objects -> slot decoration kind=image.
-//       - PATH (vector) objects -> slot decoration kind=vector.
-//    c. Ecrire page-NNN.json dans outDir.
+// Strategy:
+// 1. Init PDFium, open the source PDF.
+// 2. For each page:
+//    a. Retrieve page_size (width, height).
+//    b. Iterate the PDFium page objects:
+//       - TEXT objects -> text_span (heuristic typing: section_banner
+//         if large text at the top, page_number if small digit at the foot,
+//         running_header otherwise).
+//       - IMAGE objects -> decoration slot kind=image.
+//       - PATH (vector) objects -> decoration slot kind=vector.
+//    c. Write page-NNN.json into outDir.
 //
-// Convention bbox : on convertit les coords PDFium (origine bottom-left,
-// Y croissant vers le haut) vers la convention du schema (origine top-left).
+// bbox convention: we convert PDFium coords (bottom-left origin,
+// Y increasing upward) to the schema convention (top-left origin).
 
 #include "extract.hpp"
 
@@ -44,8 +44,8 @@ namespace fs = std::filesystem;
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Convertit (left, bottom, right, top) en coords PDFium (origine bottom-left)
-// vers [x0, y0, x1, y1] en coords schema (origine top-left).
+// Converts (left, bottom, right, top) in PDFium coords (bottom-left origin)
+// to [x0, y0, x1, y1] in schema coords (top-left origin).
 static json toBbox(float left, float bottom, float right, float top, float pageHeight) {
   return json::array({
     left,
@@ -55,15 +55,15 @@ static json toBbox(float left, float bottom, float right, float top, float pageH
   });
 }
 
-// Formate une couleur RGB (0-255) en "#rrggbb" lowercase.
+// Formats an RGB color (0-255) as lowercase "#rrggbb".
 static std::string toHexColor(unsigned r, unsigned g, unsigned b) {
   char buf[8];
   std::snprintf(buf, sizeof(buf), "#%02x%02x%02x", r & 0xFF, g & 0xFF, b & 0xFF);
   return std::string(buf);
 }
 
-// Convertit un buffer UTF-16LE (output PDFium) en UTF-8 std::string.
-// Ignore les BOM et les caracteres null de fin.
+// Converts a UTF-16LE buffer (PDFium output) into a UTF-8 std::string.
+// Ignores BOMs and trailing null characters.
 static std::string utf16LeToUtf8(const unsigned short* data, int charCount) {
   std::string out;
   out.reserve(charCount);
@@ -76,8 +76,8 @@ static std::string utf16LeToUtf8(const unsigned short* data, int charCount) {
       out.push_back(static_cast<char>(0xC0 | (u >> 6)));
       out.push_back(static_cast<char>(0x80 | (u & 0x3F)));
     } else {
-      // Pas de gestion surrogate pairs ici (ASCII/Latin-1/BMP basique suffit
-      // pour un catalogue produit). A enrichir si besoin.
+      // No surrogate pair handling here (basic ASCII/Latin-1/BMP is enough
+      // for a product catalog). To be extended if needed.
       out.push_back(static_cast<char>(0xE0 | (u >> 12)));
       out.push_back(static_cast<char>(0x80 | ((u >> 6) & 0x3F)));
       out.push_back(static_cast<char>(0x80 | (u & 0x3F)));
@@ -86,8 +86,8 @@ static std::string utf16LeToUtf8(const unsigned short* data, int charCount) {
   return out;
 }
 
-// Heuristique simple : detecte si un texte ressemble a un numero de page
-// (1-3 chiffres optionnellement precedes/suivis de "/", "p.", etc.).
+// Simple heuristic: detects whether a text looks like a page number
+// (1-3 digits optionally preceded/followed by "/", "p.", etc.).
 static bool looksLikePageNumber(const std::string& s) {
   std::string trimmed;
   for (char c : s) {
@@ -102,14 +102,14 @@ static bool looksLikePageNumber(const std::string& s) {
   return digits >= 1 && digits <= 4;
 }
 
-// Heuristique : "..." ou "....." dans un text = leader de TOC.
+// Heuristic: "..." or "....." within a text = TOC leader.
 static bool hasDotLeader(const std::string& s) {
   return s.find("...") != std::string::npos
       || s.find(". . .") != std::string::npos;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Extraction d'un text object → JSON slot typé
+// Extraction of a text object → typed JSON slot
 // ─────────────────────────────────────────────────────────────────────────────
 
 struct ExtractedText {
@@ -125,12 +125,12 @@ struct ExtractedText {
 
 static bool extractTextObject(FPDF_PAGEOBJECT obj, FPDF_TEXTPAGE textPage,
                                ExtractedText& out) {
-  // Texte UTF-16 : 1er appel pour mesurer (en bytes, terminator inclus),
-  // puis 2eme appel avec le buffer alloue. textPage peut etre null si la
-  // page n'a pas pu etre indexee : on skip proprement.
+  // UTF-16 text: 1st call to measure (in bytes, terminator included),
+  // then 2nd call with the allocated buffer. textPage may be null if the
+  // page could not be indexed: we skip cleanly.
   if (!textPage) return false;
   unsigned long neededBytes = FPDFTextObj_GetText(obj, textPage, nullptr, 0);
-  if (neededBytes <= 2) return false;  // juste le terminator null
+  if (neededBytes <= 2) return false;  // just the null terminator
   std::vector<unsigned short> buf(neededBytes / 2);
   FPDFTextObj_GetText(obj, textPage, buf.data(), neededBytes);
   out.text = utf16LeToUtf8(buf.data(), static_cast<int>(buf.size()));
@@ -145,31 +145,31 @@ static bool extractTextObject(FPDF_PAGEOBJECT obj, FPDF_TEXTPAGE textPage,
   if (!FPDFTextObj_GetFontSize(obj, &out.fontSize)) {
     out.fontSize = 0;
   }
-  // PDFium retourne la font_size BRUTE (souvent 1.0 sur des PDFs InDesign qui
-  // appliquent l'echelle via la matrice). La vraie taille rendue = font_size
-  // * |scale| de la matrice. On applique le facteur ici pour avoir une size
-  // exploitable par les heuristiques (section_banner si size >= 14, etc.).
+  // PDFium returns the RAW font_size (often 1.0 on InDesign PDFs that
+  // apply the scale via the matrix). The actual rendered size = font_size
+  // * |scale| of the matrix. We apply the factor here to get a size
+  // usable by the heuristics (section_banner if size >= 14, etc.).
   FS_MATRIX mat;
   if (FPDFPageObj_GetMatrix(obj, &mat)) {
     float scaleX = std::sqrt(mat.a * mat.a + mat.b * mat.b);
     if (scaleX > 0) out.fontSize *= scaleX;
   }
 
-  // Font name : on recupere via le FPDF_FONT
+  // Font name: retrieved via the FPDF_FONT
   FPDF_FONT font = FPDFTextObj_GetFont(obj);
   if (font) {
     char fontBuf[256] = {0};
     unsigned long flen = FPDFFont_GetBaseFontName(font, fontBuf, sizeof(fontBuf));
     if (flen > 0 && flen <= sizeof(fontBuf)) {
-      out.fontName.assign(fontBuf, flen - 1);  // -1 pour exclure le \0 final
-      // Strip le prefixe "AAAAAA+" si subset (6 lettres + +)
+      out.fontName.assign(fontBuf, flen - 1);  // -1 to exclude the trailing \0
+      // Strip the "AAAAAA+" prefix if subset (6 letters + +)
       auto plus = out.fontName.find('+');
       if (plus == 6) out.fontName = out.fontName.substr(7);
     }
   }
   if (out.fontName.empty()) out.fontName = "Unknown";
 
-  // Couleur fill
+  // Fill color
   unsigned int r = 0, g = 0, b = 0, a = 0;
   if (FPDFPageObj_GetFillColor(obj, &r, &g, &b, &a)) {
     out.colorHex = toHexColor(r, g, b);
@@ -181,29 +181,29 @@ static bool extractTextObject(FPDF_PAGEOBJECT obj, FPDF_TEXTPAGE textPage,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Heuristiques de typage des slots
+// Slot typing heuristics
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Decide le type de slot pour un text donné, en fonction de sa position et
-// de sa taille. Retourne une string parmi les SLOT_TYPES du schema.
+// Decides the slot type for a given text, based on its position and
+// its size. Returns one of the schema's SLOT_TYPES strings.
 static std::string classifyTextSlot(const ExtractedText& t, float pageW, float pageH) {
-  // Coords schema (top-left)
+  // Schema coords (top-left)
   float y0 = pageH - t.top;
   float y1 = pageH - t.bottom;
 
-  // Bandeau de section : deux criteres independants.
+  // Section banner: two independent criteria.
   //
-  // Critere A — gros texte dans le quart superieur de la page (critere
-  // original elargi : 14pt + y<50 -> 11pt + y < 25% hauteur page).
-  // Couvre les bandeaux en haut d'une page de section.
+  // Criterion A — large text in the upper quarter of the page (the
+  // original criterion broadened: 14pt + y<50 -> 11pt + y < 25% of page height).
+  // Covers banners at the top of a section page.
   //
-  // Critere B — texte large (> 55% de la largeur page) avec taille >= 9pt
-  // jusqu'a 60% de la hauteur page. Couvre les bandeaux horizontaux
-  // centres (couverts d'un fond colore dans InDesign) et les titres
-  // de gamme qui traversent la page.
+  // Criterion B — wide text (> 55% of the page width) with size >= 9pt
+  // up to 60% of the page height. Covers centered horizontal banners
+  // (overlaid on a colored background in InDesign) and range titles
+  // that span the page.
   //
-  // On exclut les textes trop courts (< 2 chars apres trim) pour ne pas
-  // classer des numeros de page ou des puces decoratives.
+  // We exclude texts that are too short (< 2 chars after trim) so as not to
+  // classify page numbers or decorative bullets.
   {
     std::string trimmed = t.text;
     size_t s = 0, e = trimmed.size();
@@ -217,9 +217,9 @@ static std::string classifyTextSlot(const ExtractedText& t, float pageW, float p
     bool isTop    = relY < 0.25f;
     bool isBig    = t.fontSize >= 11.0f;
     bool isMedium = t.fontSize >= 9.0f;
-    // Min 6 chars : exclut "Inox", "Noir", "Gris", "Mat" qui sont des
-    // couleurs frequemment ecrites en haut de fiches produit. Sections
-    // legitimes ER : "AÉRATEURS"=10, "BIDETS"=6, "BONDES"=6, etc.
+    // Min 6 chars: excludes "Inox", "Noir", "Gris", "Mat" which are
+    // colors frequently written at the top of product sheets. Legitimate
+    // ER sections: "AÉRATEURS"=10, "BIDETS"=6, "BONDES"=6, etc.
     bool notTooShort = trimLen >= 6;
 
     if (notTooShort && ((isBig && isTop) || (isWide && isMedium && relY < 0.60f))) {
@@ -227,27 +227,27 @@ static std::string classifyTextSlot(const ExtractedText& t, float pageW, float p
     }
   }
 
-  // Numero de page : tres bas + texte court ressemblant a un numero
+  // Page number: very low + short text resembling a number
   if (y1 > pageH - 40.0f && looksLikePageNumber(t.text)) {
     return "page_number";
   }
 
-  // Toc entry : ligne contenant des dot leaders
+  // Toc entry: line containing dot leaders
   if (hasDotLeader(t.text)) {
     return "toc_entry";
   }
 
-  // Toc title : texte tres gros en haut de page (mais pas sur le bord)
+  // Toc title: very large text at the top of the page (but not at the edge)
   if (t.fontSize >= 24.0f && y0 < 200.0f) {
     return "toc_title";
   }
 
-  // Defaut : on classe en running_header (catch-all neutre, sera reclasse
-  // par Claude au planning ou patche a la main par l'utilisateur).
+  // Default: classify as running_header (neutral catch-all, will be reclassified
+  // by Claude at planning time or patched by hand by the user).
   return "running_header";
 }
 
-// Construit le JSON slot pour un texte.
+// Builds the JSON slot for a text.
 static json buildTextSlot(const ExtractedText& t, float pageW, float pageH,
                           int& nextId) {
   std::string type = classifyTextSlot(t, pageW, pageH);
@@ -266,20 +266,20 @@ static json buildTextSlot(const ExtractedText& t, float pageW, float pageH,
     {"label", span},
   };
 
-  // Champs specifiques selon type
+  // Type-specific fields
   if (type == "page_number") {
-    // Tente de parser le numero
+    // Try to parse the number
     int num = 0;
     for (char c : t.text) {
       if (std::isdigit(static_cast<unsigned char>(c))) num = num * 10 + (c - '0');
     }
     if (num > 0) slot["current_number"] = num;
   } else if (type == "toc_entry") {
-    // page_number_text : split heuristique. Une toc entry typique est
-    // "Titre de section .................. 42" ou "Titre  42". On extrait
-    // les digits trailing comme page_number_text avec une bbox approximee
-    // (segment droit du span original). Si pas de digits trailing, on
-    // reutilise le label entier (fallback historique).
+    // page_number_text: heuristic split. A typical toc entry is
+    // "Section title .................. 42" or "Title  42". We extract
+    // the trailing digits as page_number_text with an approximated bbox
+    // (right segment of the original span). If there are no trailing digits, we
+    // reuse the whole label (historical fallback).
     const std::string& text = t.text;
     int digitsStart = -1;
     for (int i = static_cast<int>(text.size()) - 1; i >= 0; --i) {
@@ -294,9 +294,9 @@ static json buildTextSlot(const ExtractedText& t, float pageW, float pageH,
     }
     if (digitsStart > 0 && digitsStart < static_cast<int>(text.size())) {
       std::string numText = text.substr(digitsStart);
-      // Bbox approximative : derniere portion (proportionnelle a la
-      // longueur du sous-texte). Pas exact mais suffisant pour le
-      // reuse cote substitutor (qui re-positionne via insertAtSpan).
+      // Approximate bbox: last portion (proportional to the
+      // length of the sub-text). Not exact but sufficient for
+      // reuse on the substitutor side (which re-positions via insertAtSpan).
       float total = t.right - t.left;
       float fraction = static_cast<float>(numText.size()) / static_cast<float>(text.size());
       float numLeft = t.right - total * fraction;
@@ -316,7 +316,7 @@ static json buildTextSlot(const ExtractedText& t, float pageW, float pageH,
   return slot;
 }
 
-// Slot decoration pour une image ou un path vectoriel.
+// Decoration slot for an image or a vector path.
 static json buildDecorationSlot(FPDF_PAGEOBJECT obj, const std::string& kind,
                                  float pageH, int& nextId) {
   float left = 0, bottom = 0, right = 0, top = 0;
@@ -333,7 +333,7 @@ static json buildDecorationSlot(FPDF_PAGEOBJECT obj, const std::string& kind,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Extraction d'une page complete
+// Extraction of a complete page
 // ─────────────────────────────────────────────────────────────────────────────
 
 static json extractPage(FPDF_DOCUMENT doc, int pageIndex) {
@@ -345,31 +345,31 @@ static json extractPage(FPDF_DOCUMENT doc, int pageIndex) {
   float pageW = FPDF_GetPageWidthF(page);
   float pageH = FPDF_GetPageHeightF(page);
 
-  // text_page : handle requis pour FPDFTextObj_GetText. Charge UNE fois
-  // pour la page, ferme apres la boucle. Peut retourner nullptr sur PDF
-  // chiffre / forme corrompue : les pages texte sont alors juste skip.
+  // text_page: handle required for FPDFTextObj_GetText. Loaded ONCE
+  // for the page, closed after the loop. May return nullptr on an encrypted
+  // PDF / corrupted form: text pages are then simply skipped.
   FPDF_TEXTPAGE textPage = FPDFText_LoadPage(page);
   if (!textPage) {
     std::cerr << "Page " << pageIndex << " : FPDFText_LoadPage a echoue, texte non extrait\n";
   }
 
   json slots = json::array();
-  // raw_spans : TOUS les spans texte de la page sans inference de type. Sert
-  // au pipeline V2 (TS) qui porte find_product_blocks/auto_detect_template
-  // depuis le moteur V1 Python. Le champ slots reste pour la retro-compat.
+  // raw_spans: ALL the text spans of the page without type inference. Used
+  // by the V2 (TS) pipeline that carries find_product_blocks/auto_detect_template
+  // over from the V1 Python engine. The slots field remains for backward compat.
   json rawSpans = json::array();
-  // raw_images : bbox de toutes les images bitmap. Sert a detecter les
-  // variantes couleur (vignettes carrees) et l'image principale du produit.
+  // raw_images: bbox of all bitmap images. Used to detect the
+  // color variants (square thumbnails) and the product's main image.
   json rawImages = json::array();
-  // raw_paths : bbox + fillColor des paths colorés (non blanc/transparent).
-  // Sert a retrouver la couleur de fond d'un cartouche section_banner pour
-  // pouvoir le substituer en preservant la teinte template.
+  // raw_paths: bbox + fillColor of the colored paths (non white/transparent).
+  // Used to recover the background color of a section_banner cartouche so it
+  // can be substituted while preserving the template tint.
   json rawPaths = json::array();
   int nextId = 0;
 
-  // P5 (audit V2.1) : descente recursive sur les FORM XObjects (groupes
-  // d'objets reutilisables courants dans les PDFs InDesign). Sans ca,
-  // certains contenus produit sont invisibles dans les page-NN.json.
+  // P5 (V2.1 audit): recursive descent into the FORM XObjects (groups
+  // of reusable objects common in InDesign PDFs). Without this,
+  // some product content is invisible in the page-NN.json.
   std::function<void(FPDF_PAGEOBJECT)> processObject = [&](FPDF_PAGEOBJECT obj) {
     if (!obj) return;
     int type = FPDFPageObj_GetType(obj);
@@ -396,9 +396,9 @@ static json extractPage(FPDF_DOCUMENT doc, int pageIndex) {
         rawImages.push_back(slot["bbox"]);
       }
     } else if (type == FPDF_PAGEOBJ_PATH) {
-      // Capture aussi la fillColor si le path est rempli, non blanc, non
-      // transparent. Sert au substituteSectionBanners pour matcher le
-      // fond colore d'un cartouche.
+      // Also capture the fillColor if the path is filled, non white, non
+      // transparent. Used by substituteSectionBanners to match the
+      // colored background of a cartouche.
       float pl=0, pb=0, pr=0, pt=0;
       if (FPDFPageObj_GetBounds(obj, &pl, &pb, &pr, &pt)) {
         unsigned int R=0, G=0, B=0, A=0;
@@ -442,13 +442,13 @@ static json extractPage(FPDF_DOCUMENT doc, int pageIndex) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Entree publique
+// Public entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
 int runExtract(const std::string& inPdf, const std::string& outDir) {
   initPdfium();
 
-  // Ouvrir le PDF
+  // Open the PDF
   FPDF_DOCUMENT doc = FPDF_LoadDocument(inPdf.c_str(), nullptr);
   if (!doc) {
     std::cerr << "Impossible d'ouvrir le PDF: " << inPdf
@@ -457,7 +457,7 @@ int runExtract(const std::string& inPdf, const std::string& outDir) {
     return 3;
   }
 
-  // Creer le dossier de sortie
+  // Create the output directory
   std::error_code ec;
   fs::create_directories(outDir, ec);
   if (ec) {
@@ -482,7 +482,7 @@ int runExtract(const std::string& inPdf, const std::string& outDir) {
     json page = extractPage(doc, i);
     if (page.is_null()) continue;
 
-    // Format du nom de fichier : page-001.json (3 chiffres min)
+    // File name format: page-001.json (3 digits min)
     char nameBuf[32];
     std::snprintf(nameBuf, sizeof(nameBuf), "page-%03d.json", i);
     fs::path outPath = fs::path(outDir) / nameBuf;

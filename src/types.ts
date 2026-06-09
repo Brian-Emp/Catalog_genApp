@@ -47,27 +47,27 @@ export interface ExtractedFile {
   extracted: ExtractedData;
 }
 
-/** Format produit en sortie de productsAdapter, consomme par l'orchestrator V2.
- *  L'orchestrator l'envoie tel quel a Claude (via products.json) ; le Skill
- *  catalog-generator s'en sert pour produire le plan.json. */
+/** Product format emitted by productsAdapter, consumed by the V2 orchestrator.
+ *  The orchestrator sends it as-is to Claude (via products.json); the
+ *  catalog-generator Skill uses it to produce plan.json. */
 export interface ProductInput {
   name: string;
   ref?: string;
   color?: string;
-  /** Section (ex: "BARRES DE DOUCHES") — utilise pour grouper les produits par
-   *  bandeau de section. */
+  /** Section (e.g. "BARRES DE DOUCHES") — used to group products under a
+   *  section banner. */
   section?: string;
-  /** Famille macro pour le ruban vertical (ex: "cuisine", "salle de bains"). */
+  /** Macro family for the vertical ribbon (e.g. "cuisine", "salle de bains"). */
   family?: string;
-  /** Sous-famille = niveau intermédiaire entre family et section (ex
-   *  "Robinetterie"). Utilisée pour le sommaire 3 niveaux. */
+  /** Sub-family = intermediate level between family and section (e.g.
+   *  "Robinetterie"). Used for the 3-level table of contents. */
   subFamily?: string;
-  /** Liste ordonnee de specs (clef + valeur) deja humanisees. */
+  /** Ordered list of specs (key + value), already humanized. */
   specs?: { key: string; value: string }[];
-  /** Path absolu d'une image (matchee depuis les assets uploades). */
+  /** Absolute path to an image (matched from the uploaded assets). */
   image_path?: string;
-  /** Path absolu d'un PDF de schema technique (optionnel). */
+  /** Absolute path to a technical-schema PDF (optional). */
   schema_path?: string;
-  /** Variantes couleur du produit (optionnel). */
+  /** Product color variants (optional). */
   variantes?: { name: string; ref?: string }[];
 }

@@ -1,11 +1,11 @@
 /**
- * Orchestrateur du pipeline LAYOUT GEN (mode parallele a la substitution).
+ * Orchestrator of the LAYOUT GEN pipeline (parallel mode to substitution).
  *
- * Flux : PlanProduct[] → pagination par section → 1 appel Pro/page (HTML) →
- * Chromium PDF/page → fusion en un seul PDF (pdf-lib).
+ * Flow: PlanProduct[] → pagination by section → 1 Pro call/page (HTML) →
+ * Chromium PDF/page → merge into a single PDF (pdf-lib).
  *
- * Active uniquement en mode opt-in : ne remplace PAS la substitution template,
- * c'est une alternative "composition from scratch" activable.
+ * Enabled only in opt-in mode: does NOT replace the template substitution,
+ * it's an activatable "composition from scratch" alternative.
  */
 
 import { promises as fs } from 'fs';
@@ -17,16 +17,16 @@ import type { PlanProduct } from '../types';
 
 export interface LayoutOrchestratorOptions {
   products: PlanProduct[];
-  /** Dossier des assets images (pour resoudre image_path relatifs). */
+  /** Image assets folder (to resolve relative image_path). */
   assetsDir?: string;
-  /** Produits max par page A4. Default 3 (cf template catalogC). */
+  /** Max products per A4 page. Default 3 (cf catalogC template). */
   productsPerPage?: number;
-  /** Couleur d'accent du catalogue. */
+  /** Accent color of the catalog. */
   accentColor?: string;
-  /** Concurrence des appels Pro (rate-limit OAuth). Default 2. */
+  /** Concurrency of the Pro calls (OAuth rate-limit). Default 2. */
   concurrency?: number;
   workDir: string;
-  /** Chemin du PDF final. */
+  /** Path of the final PDF. */
   outPdfPath: string;
 }
 
@@ -39,8 +39,8 @@ export interface LayoutOrchestratorResult {
 }
 
 /**
- * Convertit un PlanProduct en LayoutProduct (specs aplaties, image resolue).
- * Exporte pour test.
+ * Converts a PlanProduct into a LayoutProduct (flattened specs, resolved image).
+ * Exported for testing.
  */
 export function planProductToLayout(p: PlanProduct, assetsDir?: string): LayoutProduct {
   let imagePath: string | null = p.image_path ?? null;
@@ -58,8 +58,8 @@ export function planProductToLayout(p: PlanProduct, assetsDir?: string): LayoutP
 }
 
 /**
- * Pagine les produits : groupes par section (dans l'ordre d'apparition), puis
- * decoupes en pages de productsPerPage. Exporte pour test.
+ * Paginates the products: grouped by section (in order of appearance), then
+ * split into pages of productsPerPage. Exported for testing.
  */
 export function paginateBySection(
   products: PlanProduct[],
@@ -67,7 +67,7 @@ export function paginateBySection(
   accentColor?: string,
   assetsDir?: string,
 ): LayoutPageInput[] {
-  // Groupes par section en preservant l'ordre.
+  // Grouped by section, preserving order.
   const order: string[] = [];
   const bySection = new Map<string, PlanProduct[]>();
   for (const p of products) {
@@ -109,7 +109,7 @@ export async function generateCatalogLayout(
   const total = pageInputs.length;
   const pagePdfPaths: (string | null)[] = new Array(total).fill(null);
 
-  // Helper : genere + rend une page, retourne le HTML (pour extraction CSS).
+  // Helper: generates + renders a page, returns the HTML (for CSS extraction).
   const renderPage = async (
     idx: number,
     sharedCss?: string,
@@ -138,9 +138,9 @@ export async function generateCatalogLayout(
     return gen.html;
   };
 
-  // COHERENCE : page 1 genere le design system complet ; on extrait son CSS et
-  // on le reutilise VERBATIM sur les pages suivantes (Pro ne genere alors que
-  // le body). Style identique garanti sur tout le catalogue.
+  // CONSISTENCY: page 1 generates the complete design system; we extract its
+  // CSS and reuse it VERBATIM on the following pages (Pro then only generates
+  // the body). Identical style guaranteed across the whole catalog.
   const firstHtml = await renderPage(0);
   const sharedCss = firstHtml ? extractStyleBlock(firstHtml) ?? undefined : undefined;
   if (!sharedCss) notes.push('CSS partage non extrait — pages suivantes en mode autonome');
@@ -156,7 +156,7 @@ export async function generateCatalogLayout(
     await Promise.all(Array.from({ length: Math.min(concurrency, total - 1) }, () => worker()));
   }
 
-  // Fusion dans l'ordre.
+  // Merge in order.
   const merged = await PDFDocument.create();
   let mergedCount = 0;
   for (const pp of pagePdfPaths) {

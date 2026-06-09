@@ -1,17 +1,17 @@
 /**
- * Client Gemini bas-niveau : wrapper fetch() autour de l'API REST Google AI.
+ * Low-level Gemini client: fetch() wrapper around the Google AI REST API.
  *
- * Pas de dependance npm @google/genai : on utilise directement fetch() pour
- * minimiser la surface (pas de breaking change SDK, pas de bloat). Suffisant
- * pour les 4 cas d'usage (text, vision, image gen).
+ * No @google/genai npm dependency: we use fetch() directly to minimize the
+ * surface (no SDK breaking changes, no bloat). Sufficient for the 4 use cases
+ * (text, vision, image gen).
  *
- * Auth : la cle est lue depuis :
- *   1. process.env.GEMINI_API_KEY (si defini directement)
- *   2. process.env.GEMINI_KEY_FILE (path d'un fichier contenant la cle)
- *   3. ~/.gemini.key (fallback host)
+ * Auth: the key is read from:
+ *   1. process.env.GEMINI_API_KEY (if defined directly)
+ *   2. process.env.GEMINI_KEY_FILE (path to a file containing the key)
+ *   3. ~/.gemini.key (host fallback)
  *
- * Si aucune cle trouvee, isGeminiAvailable() retourne false et les modules
- * gemini-* doivent skip leur logique (no-op gracieux).
+ * If no key is found, isGeminiAvailable() returns false and the gemini-*
+ * modules must skip their logic (graceful no-op).
  */
 
 import { promises as fs } from 'fs';
@@ -20,11 +20,11 @@ import path from 'path';
 
 let cachedKey: string | null | undefined;
 
-/** Resout la cle Gemini depuis env vars / fichier / fallback home. Cache
- *  le resultat (null = pas trouvee, string = trouvee). */
+/** Resolves the Gemini key from env vars / file / home fallback. Caches
+ *  the result (null = not found, string = found). */
 export async function resolveGeminiKey(): Promise<string | null> {
   if (cachedKey !== undefined) return cachedKey;
-  // 1. Env direct
+  // 1. Direct env
   const envDirect = process.env.GEMINI_API_KEY?.trim();
   if (envDirect && envDirect.startsWith('AIza')) {
     cachedKey = envDirect;
@@ -44,7 +44,7 @@ export async function resolveGeminiKey(): Promise<string | null> {
         return cachedKey;
       }
     } catch {
-      // path n'existe pas, on continue
+      // path doesn't exist, we continue
     }
   }
   cachedKey = null;
@@ -55,65 +55,65 @@ export async function isGeminiAvailable(): Promise<boolean> {
   return (await resolveGeminiKey()) !== null;
 }
 
-/** Reset le cache (utile pour les tests). */
+/** Resets the cache (useful for tests). */
 export function clearGeminiKeyCache(): void {
   cachedKey = undefined;
 }
 
 // ─── Models constants ───────────────────────────────────────────────────────
 export const GEMINI_MODELS = {
-  /** Multimodal text/vision rapide, cheaper. Rate limit free : 15 RPM. */
+  /** Fast multimodal text/vision, cheaper. Free rate limit: 15 RPM. */
   flash: 'gemini-2.5-flash',
-  /** Variante allegee de flash, sans thinking budget. Plus rapide + rate
-   *  limit free plus genereux (~30 RPM). Ideal pour mapping / descriptions
-   *  / appels courts. */
+  /** Lightweight variant of flash, without thinking budget. Faster + more
+   *  generous free rate limit (~30 RPM). Ideal for mapping / descriptions
+   *  / short calls. */
   flashLite: 'gemini-2.5-flash-lite',
-  /** Multimodal text/vision premium (context 1M, raisonnement profond). */
+  /** Premium multimodal text/vision (1M context, deep reasoning). */
   pro: 'gemini-2.5-pro',
-  /** Generation d'images ("Nano Banana"). Payant only sur free tier. */
+  /** Image generation ("Nano Banana"). Paid only on free tier. */
   image: 'gemini-2.5-flash-image',
-  /** Pools de quota free-tier INDEPENDANTS (RPD journalier separe PAR MODELE).
-   *  Relais de cascade quand le quota 2.5 (20 RPD/jour seulement !) est epuise.
-   *  NB : la famille 2.0 est a 0 RPD sur ce tier (INUTILE) → on prend 3.x +
-   *  Gemma qui ont du budget. Verifie empiriquement (dashboard + appels reels). */
+  /** INDEPENDENT free-tier quota pools (separate daily RPD PER MODEL).
+   *  Cascade relay when the 2.5 quota (only 20 RPD/day!) is exhausted.
+   *  NB: the 2.0 family is at 0 RPD on this tier (USELESS) → we take 3.x +
+   *  Gemma which have budget. Verified empirically (dashboard + real calls). */
   flash31Lite: 'gemini-3.1-flash-lite',
   flash35: 'gemini-3.5-flash',
   gemma: 'gemma-4-31b-it',
 } as const;
 
-/** Cascade par defaut TEXTE : le free tier limite les requetes PAR MODELE
- *  (RPD/jour + RPM/min). On epuise un modele puis on bascule au suivant, qui a
- *  son propre pool. Ordre : le plus permissif/economique d'abord. */
-// Ordre = QUALITE DECROISSANTE : on commence TOUJOURS par les meilleurs modeles
-// (sortie plus riche : audit + descriptions). Les lite/Gemma ne servent que de
-// FALLBACK quand les modeles pleins ont epuise leur quota du jour. RPD free-tier
-// reels (dashboard AI Studio) :
+/** Default TEXT cascade: the free tier limits requests PER MODEL
+ *  (RPD/day + RPM/min). We exhaust one model then switch to the next, which has
+ *  its own pool. Order: the most permissive/economical first. */
+// Order = DECREASING QUALITY: we ALWAYS start with the best models
+// (richer output: audit + descriptions). The lite/Gemma ones serve only as a
+// FALLBACK when the full models have exhausted their daily quota. Real free-tier
+// RPD (AI Studio dashboard):
 //   3.5-flash=20 · 2.5-flash=20 · 3.1-flash-lite=500 · 2.5-flash-lite=20 · gemma=1500
-// (2.0 et Pro = 0, exclus). Donc : pleins (3.5/2.5-flash) en tete pour la qualite,
-// puis 3.1-flash-lite (500/j, gros filet quand les 20/j sont cuits), puis Gemma.
+// (2.0 and Pro = 0, excluded). So: full ones (3.5/2.5-flash) up front for quality,
+// then 3.1-flash-lite (500/day, big net when the 20/day are burned), then Gemma.
 export const TEXT_CASCADE: string[] = [
-  GEMINI_MODELS.flash35,     // 3.5 flash (plein) — MEILLEUR, toujours en tete
-  GEMINI_MODELS.flash,       // 2.5 flash (plein)
-  GEMINI_MODELS.flash31Lite, // 3.1 flash-lite (500/j) — gros filet budget
-  GEMINI_MODELS.flashLite,   // 2.5 flash-lite (20/j)
-  GEMINI_MODELS.gemma,       // Gemma 4 (1500/j) — reserve profonde (qualite moindre)
+  GEMINI_MODELS.flash35,     // 3.5 flash (full) — BEST, always up front
+  GEMINI_MODELS.flash,       // 2.5 flash (full)
+  GEMINI_MODELS.flash31Lite, // 3.1 flash-lite (500/day) — big budget net
+  GEMINI_MODELS.flashLite,   // 2.5 flash-lite (20/day)
+  GEMINI_MODELS.gemma,       // Gemma 4 (1500/day) — deep reserve (lower quality)
 ];
-/** Cascade VISION : modeles multimodaux VERIFIES "acceptent une image", meme
- *  logique QUALITE d'abord. */
+/** VISION cascade: multimodal models VERIFIED to "accept an image", same
+ *  QUALITY-first logic. */
 export const VISION_CASCADE: string[] = [
-  GEMINI_MODELS.flash35,     // 3.5 flash — MEILLEUR
+  GEMINI_MODELS.flash35,     // 3.5 flash — BEST
   GEMINI_MODELS.flash,       // 2.5 flash
-  GEMINI_MODELS.flash31Lite, // 3.1 flash-lite (500/j) — gros filet
+  GEMINI_MODELS.flash31Lite, // 3.1 flash-lite (500/day) — big net
   GEMINI_MODELS.flashLite,   // 2.5 flash-lite
 ];
 
-/** Liste de modeles a essayer : le(s) modele(s) explicite(s) du caller
- *  d'abord, puis le reste de la cascade (dedupe, ordre preserve). */
+/** List of models to try: the caller's explicit model(s) first, then the
+ *  rest of the cascade (deduped, order preserved). */
 function buildCascade(primary: string, fallback: string | undefined, base: string[]): string[] {
-  // `base` est ordonnee par QUALITE (meilleurs modeles d'abord) → AUTORITAIRE.
-  // Le modele/fallback explicite du caller est garanti present mais NE passe PAS
-  // devant la cascade (sinon un caller forcant un modele precis court-circuiterait
-  // la qualite). Ajoute en fin uniquement s'il manque de la cascade.
+  // `base` is ordered by QUALITY (best models first) → AUTHORITATIVE.
+  // The caller's explicit model/fallback is guaranteed present but does NOT go
+  // ahead of the cascade (otherwise a caller forcing a specific model would
+  // short-circuit quality). Added at the end only if missing from the cascade.
   const out = [...base];
   for (const m of [primary, fallback]) {
     if (m && !out.includes(m)) out.push(m);
@@ -121,10 +121,10 @@ function buildCascade(primary: string, fallback: string | undefined, base: strin
   return out;
 }
 
-/** Estime grossierement les tokens d'une requete (input + output) pour le
- *  rate-limiter TPM. ~4 chars/token ; image inline ~300 tokens ; output =
- *  maxOutputTokens annonce. Approximatif mais suffisant pour ne pas exploser le
- *  TPM (250K/min) — c'est surtout le RPM (5-15/min) qui borde. */
+/** Roughly estimates a request's tokens (input + output) for the TPM
+ *  rate-limiter. ~4 chars/token; inline image ~300 tokens; output =
+ *  declared maxOutputTokens. Approximate but enough to avoid blowing the
+ *  TPM (250K/min) — it's mostly the RPM (5-15/min) that's the constraint. */
 function estimateRequestTokens(body: GeminiGenerateRequest): number {
   let t = 0;
   for (const content of body.contents ?? []) {
@@ -137,11 +137,11 @@ function estimateRequestTokens(body: GeminiGenerateRequest): number {
   return t;
 }
 
-/** Essaie chaque modele de la cascade. Avance au suivant UNIQUEMENT sur echec
- *  quota (429 / rate-limit / circuit ouvert) — chaque modele ayant son propre
- *  pool free-tier. Sur erreur NON-quota (auth, bad request) on s'arrete (inutile
- *  de cascader). Retourne le 1er succes (marque usedFallback si pas le 1er), ou
- *  le dernier echec. */
+/** Tries each model in the cascade. Advances to the next ONLY on a quota
+ *  failure (429 / rate-limit / open circuit) — each model having its own
+ *  free-tier pool. On a NON-quota error (auth, bad request) we stop (no point
+ *  cascading). Returns the first success (flags usedFallback if not the first),
+ *  or the last failure. */
 async function callWithCascade(
   models: string[],
   body: GeminiGenerateRequest,
@@ -150,10 +150,10 @@ async function callWithCascade(
 ): Promise<GenerateTextResult> {
   const cb = await import('./circuitBreaker');
   const rl = await import('./rateLimiter');
-  // Court-circuit : si une cascade complete a echoue sur quota tres recemment
-  // (<45s), tous les modeles sont morts → fail immediat sans re-tenter les N.
-  // Evite de gaspiller du temps sur chaque tache auxiliaire quand le quota est
-  // globalement epuise.
+  // Short-circuit: if a full cascade failed on quota very recently
+  // (<45s), all models are dead → immediate failure without retrying the N.
+  // Avoids wasting time on each auxiliary task when the quota is globally
+  // exhausted.
   if (cb.isQuotaCold()) {
     return { ok: false, error: 'quota Gemini froid (cascade court-circuitee, retest auto <45s)' };
   }
@@ -161,55 +161,55 @@ async function callWithCascade(
   let last: GenerateTextResult = { ok: false, error: 'cascade vide' };
   for (let i = 0; i < models.length; i++) {
     const model = models[i];
-    // CIRCUIT OUVERT : ce (module, modele) a pris 3x429 recemment → on SKIP
-    // AVANT toute reservation rate-limit. Sinon on consomme un slot RPM/TPM pour
-    // un appel qui ne partira pas (callGenerate fail-fast sur circuit ouvert),
-    // ce qui ronge le budget par-minute du modele PARTAGE par les autres modules.
+    // OPEN CIRCUIT: this (module, model) took 3x429 recently → we SKIP
+    // BEFORE any rate-limit reservation. Otherwise we consume an RPM/TPM slot for
+    // a call that won't go out (callGenerate fail-fast on open circuit),
+    // which eats the per-minute budget of the model SHARED by the other modules.
     if (cb.isCircuitOpen(module, model)) {
       last = { ok: false, error: `${model}: circuit ouvert (quota recent, retest <5min)` };
       continue;
     }
-    // RATE-LIMIT PROACTIF (par minute) : si le modele a deja atteint son RPM ou
-    // TPM sur la fenetre 60s, on SKIP directement au suivant (pool distinct) —
-    // evite un 429 garanti + son round-trip. Le RPD (jour) reste gere reactif
-    // par le 429 quota ci-dessous.
+    // PROACTIVE RATE-LIMIT (per minute): if the model has already reached its RPM
+    // or TPM over the 60s window, we SKIP straight to the next one (distinct pool) —
+    // avoids a guaranteed 429 + its round-trip. The RPD (day) stays handled
+    // reactively by the quota 429 below.
     if (!rl.canUse(model, estTokens)) {
       last = { ok: false, error: `${model}: limite par-minute (RPM/TPM) atteinte` };
       continue;
     }
-    // RESERVE le slot RPM/TPM AVANT l'appel (anti-race : 2 generations
-    // concurrentes ne passent pas toutes canUse avant qu'aucune n'ait compte).
+    // RESERVE the RPM/TPM slot BEFORE the call (anti-race: 2 concurrent
+    // generations don't all pass canUse before any has counted).
     rl.record(model, estTokens);
-    // maxRetryDelayMs=0 : sur 429 on NE dort PAS sur le modele courant (son
-    // retry-in annonce est trompeur — un quota journalier peut afficher "2s").
-    // On bascule immediatement au modele suivant (pool independant). Le retry
-    // 5xx (backoff exponentiel) reste actif, lui (transient reseau != quota).
+    // maxRetryDelayMs=0: on 429 we do NOT sleep on the current model (its
+    // announced retry-in is misleading — a daily quota may show "2s").
+    // We immediately switch to the next model (independent pool). The 5xx retry
+    // (exponential backoff) stays active (network transient != quota).
     const res = await callGenerate(model, body, key, module, 0, i > 0);
     if (res.ok) return i > 0 ? { ...res, usedFallback: true } : res;
     last = res;
-    // On CONTINUE la cascade sur echec QUOTA (429/rate-limit), modele indispo
-    // (404/not-found : un modele exotique non provisionne ce jour ne doit pas
-    // tuer la gen) OU surcharge serveur transitoire (5xx / "high demand" : un
-    // autre modele a un backend distinct et peut repondre). Sur une vraie
-    // erreur (400 bad-request, auth) on s'arrete (cascader ne sert a rien).
+    // We CONTINUE the cascade on a QUOTA failure (429/rate-limit), unavailable
+    // model (404/not-found: an exotic model not provisioned that day must not
+    // kill the gen) OR a transient server overload (5xx / "high demand": another
+    // model has a distinct backend and may respond). On a real error
+    // (400 bad-request, auth) we stop (cascading is pointless).
     if (!isQuotaFailure(res.error) && !isModelUnavailable(res.error) && !isServerOverloaded(res.error)) {
       return res;
     }
   }
-  // Toute la cascade a echoue. markQuotaCold UNIQUEMENT si (a) c'etait une vraie
-  // cascade multi-modeles — une sonde noCascade (ex health, 1 modele) ne peut PAS
-  // conclure que TOUS les modeles sont cuits, elle ne doit pas empoisonner le
-  // flag global — ET (b) l'echec final est un quota (pas un 5xx transitoire).
+  // The whole cascade failed. markQuotaCold ONLY if (a) it was a true
+  // multi-model cascade — a noCascade probe (e.g. health, 1 model) CANNOT
+  // conclude that ALL models are burned, it must not poison the global
+  // flag — AND (b) the final failure is a quota (not a transient 5xx).
   if (models.length > 1 && isQuotaFailure(last.error)) cb.markQuotaCold();
   return last;
 }
 
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
-// Timeout dur par requete HTTP. Node `fetch` n'a AUCUN timeout par defaut : une
-// connexion qui hang (modele surcharge, proxy muet) bloquerait l'await
-// indefiniment. 15s : un appel Gemini flash/lite sain repond en 1-5s ; au-dela
-// = modele lent/qui hang → on abort et (en cascade) on bascule au suivant.
+// Hard timeout per HTTP request. Node `fetch` has NO default timeout: a
+// connection that hangs (overloaded model, silent proxy) would block the await
+// indefinitely. 15s: a healthy Gemini flash/lite call responds in 1-5s; beyond
+// that = slow/hanging model → we abort and (in cascade) switch to the next.
 const REQUEST_TIMEOUT_MS = 15_000;
 
 // ─── Types Gemini API ───────────────────────────────────────────────────────
@@ -258,14 +258,14 @@ export interface GenerateTextOptions {
   temperature?: number;
   maxOutputTokens?: number;
   /**
-   * Cap max sur le delai de retry 429 honore. Default 90s.
-   * Pour des calls "vite ou rien" (health, UI) : passer ~5000 pour fail-fast.
+   * Max cap on the honored 429 retry delay. Default 90s.
+   * For "fast or nothing" calls (health, UI): pass ~5000 to fail-fast.
    */
   maxRetryDelayMs?: number;
   /**
-   * Modele de fallback tente si l'appel principal echoue avec 429 exhausted
-   * ou circuit ouvert. Ex : model='gemini-2.5-flash', fallbackModel='gemini-2.5-flash-lite'.
-   * Si fallback reussit : on continue. Si fallback fail aussi : on retourne l'erreur du main.
+   * Fallback model tried if the main call fails with 429 exhausted
+   * or open circuit. E.g. model='gemini-2.5-flash', fallbackModel='gemini-2.5-flash-lite'.
+   * If the fallback succeeds: we continue. If the fallback also fails: we return the main error.
    */
   fallbackModel?: string;
 }
@@ -275,16 +275,16 @@ export interface GenerateTextResult {
   text?: string;
   finishReason?: string;
   error?: string;
-  /** True si la reponse vient du fallbackModel (degradation). */
+  /** True if the response comes from the fallbackModel (degradation). */
   usedFallback?: boolean;
 }
 
 export interface GenerateTextOptionsExt extends GenerateTextOptions {
-  /** Label appelant pour le tracking stats (ex 'descriptions', 'specMapping'). */
+  /** Caller label for stats tracking (e.g. 'descriptions', 'specMapping'). */
   module?: string;
-  /** Si true : N'UTILISE PAS la cascade — sonde UNIQUEMENT le modele demande
-   *  (pas de fan-out sur les autres). Pour le health check : 1 sonde rapide d'un
-   *  modele fiable, sans traverser des modeles 20/j potentiellement cuits. */
+  /** If true: does NOT USE the cascade — probes ONLY the requested model
+   *  (no fan-out to the others). For the health check: 1 fast probe of a
+   *  reliable model, without traversing potentially burned 20/day models. */
   noCascade?: boolean;
 }
 
@@ -299,9 +299,9 @@ export async function generateText(opts: GenerateTextOptionsExt): Promise<Genera
       maxOutputTokens: opts.maxOutputTokens ?? 2048,
     },
   };
-  // Cascade : modele explicite + fallback du caller, puis la cascade texte par
-  // defaut. On bascule de modele sur quota epuise (chaque modele = pool free
-  // tier independant). noCascade → on sonde uniquement `model` (health check).
+  // Cascade: the caller's explicit model + fallback, then the default text
+  // cascade. We switch model on exhausted quota (each model = independent free
+  // tier pool). noCascade → we probe only `model` (health check).
   const cascade = opts.noCascade ? [model] : buildCascade(model, opts.fallbackModel, TEXT_CASCADE);
   return callWithCascade(cascade, body, key, opts.module ?? 'unknown');
 }
@@ -313,11 +313,11 @@ export interface AnalyzeImageOptions {
   imageBytes: Buffer;
   mimeType?: string;
   model?: string;
-  /** Label appelant pour stats. */
+  /** Caller label for stats. */
   module?: string;
-  /** Cap retry 429 ms (default 90s). */
+  /** 429 retry cap in ms (default 90s). */
   maxRetryDelayMs?: number;
-  /** Modele degradation si main fail sur quota. Ex flash → flashLite. */
+  /** Degradation model if main fails on quota. E.g. flash → flashLite. */
   fallbackModel?: string;
 }
 
@@ -349,7 +349,7 @@ export async function analyzeImage(opts: AnalyzeImageOptions): Promise<GenerateT
 export interface MultiImageInput {
   bytes: Buffer;
   mimeType?: string;
-  /** Label optionnel (ex "page 5") ajoute en text avant l'image dans le prompt. */
+  /** Optional label (e.g. "page 5") added as text before the image in the prompt. */
   label?: string;
 }
 
@@ -360,17 +360,17 @@ export interface AnalyzeMultiImageOptions {
   temperature?: number;
   module?: string;
   maxRetryDelayMs?: number;
-  /** Modele degradation si main fail sur quota (ex pro → flash). */
+  /** Degradation model if main fails on quota (e.g. pro → flash). */
   fallbackModel?: string;
 }
 
 /**
- * Envoie plusieurs images en UNE seule requete Gemini pour analyse globale.
- * Cas d'usage : coherence catalogue, comparaison cross-pages, detection de
- * variations subtiles entre pages similaires.
+ * Sends several images in a SINGLE Gemini request for global analysis.
+ * Use case: catalog coherence, cross-page comparison, detection of
+ * subtle variations between similar pages.
  *
- * Le prompt est envoye en premier, puis chaque image precedee de son label
- * (si fourni). Context 1M tokens = supporte 20-30 images haute qualite.
+ * The prompt is sent first, then each image preceded by its label
+ * (if provided). 1M-token context = supports 20-30 high-quality images.
  */
 export async function analyzeMultiImage(
   opts: AnalyzeMultiImageOptions,
@@ -458,10 +458,10 @@ async function callGenerate(
   isFallbackAttempt: boolean = false,
 ): Promise<GenerateTextResult> {
   const t0 = Date.now();
-  // Lazy import pour eviter cycle (stats.ts est leaf)
+  // Lazy import to avoid a cycle (stats.ts is a leaf)
   const { recordCall } = await import('./stats');
   const cb = await import('./circuitBreaker');
-  // Si le circuit est ouvert pour ce (module, model) : fail-fast.
+  // If the circuit is open for this (module, model): fail-fast.
   if (cb.isCircuitOpen(module, model)) {
     recordCall({
       module,
@@ -473,16 +473,16 @@ async function callGenerate(
     return { ok: false, error: 'circuit ouvert (quota Gemini probablement epuise, retest dans 5min)' };
   }
   const url = `${API_BASE}/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
-  // Retry sur 5xx/429 (transient / rate limit). 3 essais max.
-  // Pour 429 : on parse le "retry in Xs" annonce par Gemini (precis) et on
-  // respecte ce delai si <= maxRetryDelayMs. Au-dela = quota daily probable
-  // → fail fast pour laisser l'orchestrator skip.
+  // Retry on 5xx/429 (transient / rate limit). 3 attempts max.
+  // For 429: we parse the "retry in Xs" announced by Gemini (precise) and
+  // honor that delay if <= maxRetryDelayMs. Beyond that = probable daily quota
+  // → fail fast to let the orchestrator skip.
   const RETRY_CODES = new Set([429, 500, 502, 503, 504]);
   const MAX_ATTEMPTS = 3;
-  // Fail-fast : si un 429 annonce un retry > ce cap, c'est un quota daily mort
-  // → abandon immediat (pas de sieste). Defaut bas (8s) pour ne JAMAIS bloquer
-  // une generation des minutes sur une tache auxiliaire. Les rate-limits courts
-  // (<8s, par-minute) restent retentes normalement.
+  // Fail-fast: if a 429 announces a retry > this cap, it's a dead daily quota
+  // → immediate abort (no nap). Low default (8s) to NEVER block a generation
+  // for minutes on an auxiliary task. Short rate-limits
+  // (<8s, per-minute) are still retried normally.
   const MAX_RETRY_DELAY_MS = maxRetryDelayMsOverride ?? 8_000;
   let lastError: string | null = null;
   let lastErrorCode: number | undefined;
@@ -499,15 +499,15 @@ async function callGenerate(
         lastError = `${json.error.code}: ${json.error.message}`;
         lastErrorCode = json.error.code;
         if (RETRY_CODES.has(json.error.code) && attempt < MAX_ATTEMPTS) {
-          // 429 : parser le retry_in annonce par Gemini si dispo
+          // 429: parse the retry_in announced by Gemini if available
           const apiDelayMs = json.error.code === 429
             ? parseRetryDelayMs(json.error.message)
             : null;
-          // FAIL-FAST 429 : si PAS de delai annonce (null — Gemini ne l'annonce
-          // pas toujours) OU delai > cap → on n'attend PAS et on ne retente PAS
-          // le meme modele (quota probable). Un null NE doit PAS declencher un
-          // retry aveugle 3x : la cascade bascule de modele a la place. (Le 5xx
-          // n'est pas concerne : code!==429 → backoff exponentiel plus bas.)
+          // FAIL-FAST 429: if NO delay announced (null — Gemini doesn't always
+          // announce it) OR delay > cap → we do NOT wait and do NOT retry
+          // the same model (probable quota). A null must NOT trigger a
+          // blind 3x retry: the cascade switches model instead. (The 5xx
+          // is not affected: code!==429 → exponential backoff below.)
           if (json.error.code === 429 && (apiDelayMs === null || apiDelayMs > MAX_RETRY_DELAY_MS)) {
             cb.recordFailure(module, model, lastErrorCode);
             recordCall({
@@ -520,11 +520,11 @@ async function callGenerate(
             const retryHint = apiDelayMs !== null ? `, retry annonce ${Math.round(apiDelayMs / 1000)}s` : '';
             return { ok: false, error: `${lastError} (quota${retryHint})` };
           }
-          // Same-model retry UNIQUEMENT en mode non-cascade (cap>0, ex health).
-          // En CASCADE (cap=0) on ne retente JAMAIS le meme modele (429 ou 5xx
-          // transient inclus) : un modele lent/surcharge ne se repare pas en le
-          // re-tapant → on tombe sur le return fail ci-dessous et la cascade
-          // bascule au modele suivant. Evite de bloquer 3x sur un modele mort.
+          // Same-model retry ONLY in non-cascade mode (cap>0, e.g. health).
+          // In CASCADE (cap=0) we NEVER retry the same model (429 or 5xx
+          // transient included): a slow/overloaded model doesn't heal by being
+          // re-hit → we fall through to the return fail below and the cascade
+          // switches to the next model. Avoids blocking 3x on a dead model.
           if (MAX_RETRY_DELAY_MS > 0) {
             const delayMs = apiDelayMs ?? (500 * Math.pow(2, attempt - 1));
             await sleep(delayMs);
@@ -563,9 +563,9 @@ async function callGenerate(
       });
       return { ok: true, text: textPart.text, finishReason: candidate?.finishReason };
     } catch (err) {
-      // Inclut l'AbortError du timeout fetch (modele qui hang). En cascade
-      // (cap=0) on NE retente PAS (un modele qui hang ne se repare pas) → on
-      // sort et la cascade bascule. En non-cascade (cap>0) on retente (blip reseau).
+      // Includes the AbortError from the fetch timeout (hanging model). In cascade
+      // (cap=0) we do NOT retry (a hanging model doesn't heal) → we exit and the
+      // cascade switches. In non-cascade (cap>0) we retry (network blip).
       lastError = `fetch echec: ${err instanceof Error ? err.message : String(err)}`;
       if (attempt < MAX_ATTEMPTS && MAX_RETRY_DELAY_MS > 0) {
         await sleep(500 * Math.pow(2, attempt - 1));
@@ -589,23 +589,23 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Detecte si une erreur callGenerate est due au quota Gemini (429 / circuit open).
- * Utilise par le fallback : on degrade SEULEMENT sur quota, pas sur les autres
- * erreurs (auth fail, network, mauvais request → pas de fallback utile).
+ * Detects whether a callGenerate error is due to the Gemini quota (429 / circuit open).
+ * Used by the fallback: we degrade ONLY on quota, not on other
+ * errors (auth fail, network, bad request → no useful fallback).
  *
- * Exporte pour test unitaire.
+ * Exported for unit testing.
  */
 export function isQuotaFailure(error: string | undefined): boolean {
   if (!error) return false;
-  // `429` doit etre un nombre isole : pas colle a une lettre NI a un chiffre
-  // (sinon "500: code 4290" matcherait a tort). Lookarounds [a-z0-9].
+  // `429` must be an isolated number: not stuck to a letter NOR a digit
+  // (otherwise "500: code 4290" would match wrongly). Lookarounds [a-z0-9].
   return /(?<![a-z0-9])429(?![a-z0-9])|quota|rate.?limit|circuit ouvert/i.test(error);
 }
 
 /**
- * Detecte une erreur "modele indisponible" (404 / not found / not supported) :
- * un modele exotique de la cascade non provisionne ce jour. La cascade doit
- * SKIPPER ce modele et continuer (vs s'arreter comme sur un vrai bad-request).
+ * Detects a "model unavailable" error (404 / not found / not supported):
+ * an exotic cascade model not provisioned that day. The cascade must
+ * SKIP this model and continue (vs stopping as on a real bad-request).
  */
 export function isModelUnavailable(error: string | undefined): boolean {
   if (!error) return false;
@@ -613,11 +613,11 @@ export function isModelUnavailable(error: string | undefined): boolean {
 }
 
 /**
- * Detecte une surcharge serveur TRANSITOIRE (500/502/503/504, "high demand",
- * "overloaded", "try again later"). La cascade doit BASCULER au modele suivant
- * (backend distinct) au lieu d'abandonner : un 503 sur 3.5-flash ne dit rien de
- * la dispo de 2.5-flash. NB : ne trip PAS le circuit breaker (transient, pas
- * quota). Exporte pour test.
+ * Detects a TRANSIENT server overload (500/502/503/504, "high demand",
+ * "overloaded", "try again later"). The cascade must SWITCH to the next model
+ * (distinct backend) instead of giving up: a 503 on 3.5-flash says nothing about
+ * the availability of 2.5-flash. NB: does NOT trip the circuit breaker (transient, not
+ * quota). Exported for testing.
  */
 export function isServerOverloaded(error: string | undefined): boolean {
   if (!error) return false;
@@ -625,18 +625,18 @@ export function isServerOverloaded(error: string | undefined): boolean {
 }
 
 /**
- * Parse "Please retry in 53.55s." dans un message d'erreur Gemini 429.
- * Retourne le delai en ms, ou null si pas parse.
- * Cap a 5 min (300_000ms) pour eviter des sleeps absurdes.
+ * Parses "Please retry in 53.55s." in a Gemini 429 error message.
+ * Returns the delay in ms, or null if not parsed.
+ * Capped at 5 min (300_000ms) to avoid absurd sleeps.
  *
- * Exporte pour test unitaire.
+ * Exported for unit testing.
  */
 export function parseRetryDelayMs(message: string): number | null {
-  // "Please retry in 53.553775854s." ou "retry in 1m23s" (rare)
+  // "Please retry in 53.553775854s." or "retry in 1m23s" (rare)
   const m = message.match(/retry in\s+(\d+(?:\.\d+)?)\s*s/i);
   if (!m) return null;
   const seconds = parseFloat(m[1]);
   if (!isFinite(seconds) || seconds <= 0) return null;
-  // Cap a 5 min
+  // Cap at 5 min
   return Math.min(Math.round(seconds * 1000), 300_000);
 }

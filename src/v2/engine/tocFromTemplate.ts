@@ -1,18 +1,18 @@
 /**
- * Sommaire intelligent : reutilise la page sommaire ORIGINALE du template
- * (avec sa deco, son titre, sa typo) et substitue les entries avec les
- * sections du catalogue genere.
+ * Smart sommaire: reuses the template's ORIGINAL sommaire page (with its
+ * decoration, title, typography) and substitutes the entries with the
+ * sections of the generated catalog.
  *
- * Strategie :
- *   1. Trouver la 1ere page kind='toc' qui contient des spans pattern "p.\d+"
- *      (= vrai sommaire avec page references)
- *   2. Parser les entries originales : pour chaque "p.XX", retrouver le label
- *      a gauche sur la meme ligne Y
- *   3. Generer ops :
- *      - erase_rect sur chaque label + page number
- *      - insert_text avec nouveau label + nouveau numero de page (style template
- *        preserve : meme font / size / color / bbox)
- *   4. Le caller positionne cette page juste avant la 1ere page produit
+ * Strategy:
+ *   1. Find the first kind='toc' page that contains spans matching "p.\d+"
+ *      (= a real sommaire with page references)
+ *   2. Parse the original entries: for each "p.XX", find the label on the
+ *      left on the same Y line
+ *   3. Generate ops:
+ *      - erase_rect on each label + page number
+ *      - insert_text with the new label + new page number (template style
+ *        preserved: same font / size / color / bbox)
+ *   4. The caller positions this page just before the first product page
  */
 import type { Bbox, ExtractedPage, Operation, TextSpan } from '../types';
 import type { PageClassification } from './classify';
@@ -20,95 +20,94 @@ import type { PageAllocation } from './allocator';
 import { padBbox } from '../utils/bbox';
 
 /**
- * Match un span "numero de page de TOC". Couvre les formats courants
- * multi-langue :
- *  - "12"               (numero seul, design moderne)
- *  - "12."              (avec point final)
- *  - "p.12" / "p. 12" / "p 12"   (FR/EN abrégé)
+ * Matches a "TOC page number" span. Covers the common multi-language formats:
+ *  - "12"               (bare number, modern design)
+ *  - "12."              (with a trailing dot)
+ *  - "p.12" / "p. 12" / "p 12"   (FR/EN abbreviated)
  *  - "page 12" / "Page 12"       (FR/EN long)
  *  - "pg 12" / "pgs 12"          (EN)
- *  - "pag. 12" / "pag 12"        (IT/ES abrégé)
+ *  - "pag. 12" / "pag 12"        (IT/ES abbreviated)
  *  - "pág. 12"                   (ES)
  *  - "pagina 12" / "página 12"   (IT/ES long)
  *  - "S. 12" / "S.12" / "Seite 12" (DE)
- *  - "→ 12" / "▸ 12" / "● 12"    (TOC design avec puce)
+ *  - "→ 12" / "▸ 12" / "● 12"    (design TOC with a bullet)
  *
- * Le span doit etre court (= prefixe optionnel + chiffres + suffixe rien
- * ou point). Filtre supplementaire ensuite : position bbox + label a gauche.
+ * The span must be short (= optional prefix + digits + suffix nothing or a
+ * dot). Additional filter afterwards: bbox position + label on the left.
  */
 export const PAGE_NUM_RE = new RegExp(
   '^\\s*' +
     '(?:' +
-      // Prefixes textuels (FR/EN/DE/IT/ES). Tous optionnels.
+      // Textual prefixes (FR/EN/DE/IT/ES). All optional.
       'p(?:age|ag|ág|gs?|agina|ágina)?\\.?\\s+|' +
       'p\\.?\\s*|' +
       'seite\\s+|s\\.\\s*|' +
       'pag(?:ina)?\\.?\\s+|pág(?:ina)?\\.?\\s+|' +
-      // Puces / fleches design (suivies d'un whitespace obligatoire)
+      // Design bullets / arrows (followed by a mandatory whitespace)
       '[→▸▶▷►●•‣]\\s+' +
     ')?' +
     '\\d{1,4}' +
-    '\\.?' + // point final optionnel
+    '\\.?' + // optional trailing dot
     '\\s*$',
   'i',
 );
 const Y_TOLERANCE_PT = 4;
 
-/** Ops a appliquer sur UNE page du sommaire. Si pages.length > 1, chaque
- *  page reutilise la meme sourcePage tpl comme background (= deco + titre
- *  pour page 1, deco sans titre pour pages suivantes). */
+/** Ops to apply on ONE sommaire page. If pages.length > 1, each page reuses
+ *  the same tpl sourcePage as a background (= decoration + title for page 1,
+ *  decoration without title for the following pages). */
 export interface TocPage {
-  /** sourcePage du template a reutiliser comme fond. */
+  /** Template sourcePage to reuse as the background. */
   sourcePage: number;
-  /** Ops a appliquer (erase + insert) sur cette page. */
+  /** Ops to apply (erase + insert) on this page. */
   ops: Operation[];
-  /** Nombre d'items rendered sur cette page (incl. headers family/subfamily). */
+  /** Number of items rendered on this page (incl. family/subfamily headers). */
   itemsWritten: number;
-  /** True si c'est la 1ere page (= avec titre SOMMAIRE), false sinon. */
+  /** True if it is the first page (= with the SOMMAIRE title), false otherwise. */
   isFirstPage: boolean;
 }
 
 export interface TocFromTemplateResult {
-  /** Pages du sommaire (peut etre 0, 1 ou plusieurs si overflow). */
+  /** Sommaire pages (may be 0, 1 or several on overflow). */
   pages: TocPage[];
-  /** sourcePage du template (premiere page tpl identifiee). null si non trouve. */
+  /** Template sourcePage (first identified tpl page). null if not found. */
   sourcePage: number | null;
-  /** Ops de la 1ere page (compat existant). */
+  /** Ops of the first page (existing compat). */
   ops: Operation[];
-  /** Nombre total d'entries section ecrites (toutes pages confondues). */
+  /** Total number of section entries written (across all pages). */
   entriesWritten: number;
-  /** Nombre d'entries originales effacees (sur la page tpl). */
+  /** Number of original entries erased (on the tpl page). */
   entriesErased: number;
-  /** Debug : liste candidates avec leur entries count. */
+  /** Debug: list of candidates with their entries count. */
   debug?: string;
 }
 
 interface TocEntryTemplate {
   labelSpan: TextSpan;
   pageSpan: TextSpan;
-  /** Spans de leader dots entre label et page number (a effacer aussi). */
+  /** Leader-dots spans between label and page number (to erase too). */
   dotsSpans: TextSpan[];
 }
 
 export interface NewEntry {
   label: string;
   pageNumber: number;
-  /** Famille parente (= libelle famille majoritaire des produits de la section).
-   *  Sert au regroupement hierarchique. Vide si aucune famille renseignee. */
+  /** Parent family (= majority family label of the section's products). Used
+   *  for hierarchical grouping. Empty if no family is set. */
   family: string;
-  /** Sous-famille parente (= libelle sfamille majoritaire). Niveau intermediaire
-   *  entre family et section. Vide si aucune sous-famille renseignee. */
+  /** Parent sub-family (= majority sfamily label). Intermediate level between
+   *  family and section. Empty if no sub-family is set. */
   subFamily: string;
 }
 
-/** Item a rendre dans le sommaire :
- *  - 'family'    : header de niveau 1 (sans numero de page, taille XL)
- *  - 'subfamily' : header de niveau 2 (sans numero de page, taille L, indenté)
- *  - 'section'   : entry de niveau 3 (avec numero de page, indenté davantage)
- *  - 'extra'     : entry libre AJOUTEE EN FIN DE SOMMAIRE (style = section
- *                  mais gap supplementaire au-dessus, pas de description).
- *                  Utilise pour "Cahier technique" et autres ajouts post-toc.
- *  Le rendering decide du style selon kind. */
+/** Item to render in the sommaire:
+ *  - 'family'    : level-1 header (no page number, XL size)
+ *  - 'subfamily' : level-2 header (no page number, L size, indented)
+ *  - 'section'   : level-3 entry (with page number, indented further)
+ *  - 'extra'     : free entry ADDED AT THE END OF THE SOMMAIRE (style =
+ *                  section but with an extra gap above, no description).
+ *                  Used for "Cahier technique" and other post-toc additions.
+ *  The rendering decides the style based on kind. */
 export type ItemKind = 'family' | 'subfamily' | 'section' | 'extra';
 
 export interface RenderedItem {
@@ -117,8 +116,9 @@ export interface RenderedItem {
   pageNumber?: number;
 }
 
-/** Entree libre ajoutee en fin de sommaire (apres les sections produit) avec
- *  un petit gap visuel. Ne participe pas a la hierarchie family/subfamily. */
+/** Free entry added at the end of the sommaire (after the product sections)
+ *  with a small visual gap. Does not take part in the family/subfamily
+ *  hierarchy. */
 export interface TocExtraEntry {
   label: string;
   pageNumber: number;
@@ -128,20 +128,19 @@ export function buildTocFromTemplate(
   classifications: PageClassification[],
   allocations: PageAllocation[],
   pagePlans: { source_page: number; page_number: number | null }[],
-  /** Map sectionLabel → description marketing (1-2 phrases). Si fournie,
-   *  la zone description du sommaire est remplie avec ces phrases au lieu
-   *  d'etre simplement effacee. */
+  /** Map sectionLabel → marketing description (1-2 sentences). If provided,
+   *  the sommaire's description zone is filled with these sentences instead of
+   *  simply being erased. */
   descriptions: Record<string, string> = {},
-  /** Entries libres a ajouter EN FIN de sommaire (style section + gap top).
-   *  Cas d'usage : "Cahier technique" qui n'est pas une vraie section produit
-   *  mais doit etre listee dans le sommaire. */
+  /** Free entries to add AT THE END of the sommaire (section style + top gap).
+   *  Use case: "Cahier technique" which is not a real product section but must
+   *  be listed in the sommaire. */
   extraEntries: TocExtraEntry[] = [],
 ): TocFromTemplateResult {
-  // 1. Trouver page TOC TEXTE (pas sommaire visuel a grille d'icones). On
-  // privilegie les pages dont les labels sont longs (en moyenne > 8 chars) :
-  // une vraie liste texte ("Lavabos bas mitigeurs") vs une grille de modeles
-  // ("Onari", "Ylus", "Joker"). Parmi les candidates valides, on prend celle
-  // qui a le plus d'entries.
+  // 1. Find a TEXT TOC page (not a visual icon-grid sommaire). We favor pages
+  // whose labels are long (on average > 8 chars): a real text list ("Lavabos
+  // bas mitigeurs") vs a grid of models ("Onari", "Ylus", "Joker"). Among the
+  // valid candidates, we take the one with the most entries.
   const MIN_AVG_LABEL_LEN = 8;
   let tocPage: PageClassification | null = null;
   let entries: TocEntryTemplate[] = [];
@@ -156,8 +155,8 @@ export function buildTocFromTemplate(
     if (candidateEntries.length === 0) continue;
     const avgLen = candidateEntries.reduce((s, e) => s + e.labelSpan.text.trim().length, 0)
       / candidateEntries.length;
-    if (avgLen < MIN_AVG_LABEL_LEN) continue; // sommaire visuel grille → skip
-    // Score : nb entries * avgLen (favorise les sommaires avec labels riches)
+    if (avgLen < MIN_AVG_LABEL_LEN) continue; // visual grid sommaire → skip
+    // Score: number of entries * avgLen (favors sommaires with rich labels)
     const score = candidateEntries.length * Math.min(avgLen, 25);
     if (score > bestScore) {
       bestScore = score;
@@ -169,17 +168,17 @@ export function buildTocFromTemplate(
     return { pages: [], sourcePage: null, ops: [], entriesWritten: 0, entriesErased: 0 };
   }
 
-  // 3. Construire les nouvelles entries depuis allocations + pagePlans
+  // 3. Build the new entries from allocations + pagePlans
   const newEntries = buildNewEntries(allocations, pagePlans);
   if (newEntries.length === 0) {
     return { pages: [], sourcePage: null, ops: [], entriesWritten: 0, entriesErased: 0 };
   }
 
-  // 4. Construction des items a rendre (sections + headers famille/sfamille)
+  // 4. Build the items to render (sections + family/sfamily headers)
   const items = groupIntoHierarchy(newEntries);
   const isHierarchical = items.some((it) => it.kind === 'family');
-  // Ajout des entries libres EN FIN DE LISTE (apres toutes les sections).
-  // Le kind 'extra' declenche un gap au-dessus (style section + air visuel).
+  // Add the free entries AT THE END OF THE LIST (after all sections). The
+  // 'extra' kind triggers a gap above (section style + visual air).
   for (const extra of extraEntries) {
     if (!extra.label || !Number.isFinite(extra.pageNumber)) continue;
     items.push({
@@ -189,11 +188,11 @@ export function buildTocFromTemplate(
     });
   }
 
-  // ── Spans à effacer (communs à toutes les pages du sommaire) ────────────
-  // Ces spans appartiennent à la page tpl en background et doivent être
-  // effacés sur CHAQUE page sommaire (puisqu'on duplique la page tpl autant
-  // que nécessaire). Le titre "SOMMAIRE" est lui réinséré seulement sur la
-  // 1ère page (continuation sans titre sur les suivantes).
+  // ── Spans to erase (common to all sommaire pages) ───────────────────────
+  // These spans belong to the tpl page in the background and must be erased
+  // on EVERY sommaire page (since we duplicate the tpl page as many times as
+  // needed). The "SOMMAIRE" title is reinserted only on the first page
+  // (continuation without a title on the following ones).
   const reusedCount = isHierarchical ? 0 : Math.min(newEntries.length, entries.length);
   const eraseEntriesOps: Operation[] = [];
   for (let i = 0; i < entries.length; i++) {
@@ -207,7 +206,7 @@ export function buildTocFromTemplate(
     }
   }
 
-  // Titre tpl à effacer + remplacer par "SOMMAIRE" (sur page 1 seulement).
+  // tpl title to erase + replace with "SOMMAIRE" (on page 1 only).
   const firstEntryY = entries[0].labelSpan.bbox[1];
   const pageWidth = tocPage.extracted.page_size.width;
   const pageHeight = tocPage.extracted.page_size.height;
@@ -234,7 +233,7 @@ export function buildTocFromTemplate(
     color: biggestTitle.color,
   } : null;
 
-  // Effacement spans hors entries (descriptions marketing tpl etc.)
+  // Erase spans outside the entries (tpl marketing descriptions, etc.)
   const titleBottom = titleAreaSpans.length > 0
     ? Math.max(...titleAreaSpans.map((s) => s.bbox[3]))
     : 100;
@@ -260,16 +259,16 @@ export function buildTocFromTemplate(
     op: 'erase_rect' as const, bbox: padBbox(s.bbox, 2),
   }));
 
-  // 6. Geometrie de rendu : positions Y recalculees pour supporter les items
-  // hierarchiques (header famille + sections). Les styles (font/size/color)
-  // sont preserves depuis les entries template.
+  // 6. Render geometry: Y positions recomputed to support the hierarchical
+  // items (family header + sections). The styles (font/size/color) are
+  // preserved from the template entries.
   const refLabel = entries[0].labelSpan;
   const refPage = entries[0].pageSpan;
   const yFirst = refLabel.bbox[1];
   const lineH = refLabel.bbox[3] - refLabel.bbox[1];
 
-  // yStep base : median des gaps entre entries template (capture le rythme
-  // visuel d'origine). Fallback : lineH * 1.4.
+  // Base yStep: median of the gaps between template entries (captures the
+  // original visual rhythm). Fallback: lineH * 1.4.
   let yStepBase = lineH * 1.4;
   if (entries.length >= 2) {
     const gaps: number[] = [];
@@ -283,22 +282,22 @@ export function buildTocFromTemplate(
     }
   }
 
-  // Hauteur dispo dans la zone TOC : du 1er Y au dernier Y des entries
-  // template + une ligne (= ce que le template utilise visuellement).
+  // Available height in the TOC zone: from the first Y to the last Y of the
+  // template entries + one line (= what the template uses visually).
   const lastEntryY = entries[entries.length - 1].labelSpan.bbox[1];
   const availableH = lastEntryY - yFirst + lineH;
   const MIN_STEP_RATIO = 1.10;
   const minStep = lineH * MIN_STEP_RATIO;
 
-  // Décision yStep + descriptions. NOUVEAU comportement : si trop d'items
-  // pour la zone, on PAGINE au lieu de fallback flat ou de chevaucher.
-  // yStep cible : confortable (yStepBase) si possible, sinon minStep.
+  // yStep + descriptions decision. NEW behavior: if there are too many items
+  // for the zone, we PAGINATE instead of falling back to flat or overlapping.
+  // Target yStep: comfortable (yStepBase) if possible, otherwise minStep.
   const renderItems = items;
   let yStep = yStepBase;
 
-  // Si des descriptions Claude sont fournies, on vise un yStep large
-  // (label + 2 lignes desc). Si la zone est saturée, on drop les descriptions
-  // (priorité à la lisibilité du sommaire).
+  // If Claude descriptions are provided, we aim for a wide yStep (label + 2
+  // desc lines). If the zone is saturated, we drop the descriptions (priority
+  // to the sommaire's readability).
   const hasAnyDescription = renderItems.some(
     (it) => it.kind === 'section' && it.label && !!descriptions[it.label]
   );
@@ -314,34 +313,34 @@ export function buildTocFromTemplate(
     yStep = wantedStep;
   }
 
-  // Calcul de la capacité par page = nombre d'items qui tiennent dans la zone
-  // TOC à ce yStep. Le -1 vient du fait que la 1ère row a y=yFirst (pas de
-  // step) et chaque row supplémentaire ajoute yStep.
+  // Compute the capacity per page = number of items that fit in the TOC zone
+  // at this yStep. The -1 comes from the fact that the first row is at
+  // y=yFirst (no step) and each additional row adds yStep.
   let itemsPerPage = Math.max(1, Math.floor(availableH / yStep) + 1);
 
-  // Si même au minStep on ne peut pas afficher renderItems sur ≤2 pages,
-  // on accepte un yStep plus serré (pas en dessous de minStep absolu).
-  // Au-delà, on créera autant de pages que nécessaire.
+  // If even at minStep we cannot display renderItems on ≤2 pages, we accept a
+  // tighter yStep (not below the absolute minStep). Beyond that, we will
+  // create as many pages as needed.
   if (renderItems.length > itemsPerPage * 3) {
     yStep = Math.max(minStep, availableH / Math.max(1, Math.floor(renderItems.length / 3)));
     itemsPerPage = Math.max(1, Math.floor(availableH / yStep) + 1);
   }
-  // Si yStep est devenu insuffisant pour les descriptions → drop
+  // If yStep has become insufficient for the descriptions → drop
   if (renderDescriptions && yStep < minStepWithDesc) {
     renderDescriptions = false;
   }
 
-  // Chunking : split renderItems en pages de taille itemsPerPage.
-  // Best-effort : on essaye de ne pas couper une famille en plein milieu —
-  // si possible, on commence une nouvelle page sur un header family.
+  // Chunking: split renderItems into pages of size itemsPerPage. Best-effort:
+  // we try not to cut a family in the middle — if possible, we start a new
+  // page on a family header.
   const chunks: RenderedItem[][] = [];
   {
     let start = 0;
     while (start < renderItems.length) {
       let end = Math.min(start + itemsPerPage, renderItems.length);
-      // Si on s'arrête juste après un header famille / subfamily,
-      // on rembobine d'1 pour le placer sur la page suivante (sinon header
-      // orphelin en bas de page sans sa première section).
+      // If we stop just after a family / subfamily header, we rewind by 1 to
+      // place it on the next page (otherwise an orphan header at the bottom of
+      // the page without its first section).
       if (end < renderItems.length) {
         const last = renderItems[end - 1];
         if (last.kind === 'family' || last.kind === 'subfamily') {
@@ -353,25 +352,25 @@ export function buildTocFromTemplate(
     }
   }
 
-  // Constantes de style pour les items hierarchiques (3 niveaux).
-  // Hiérarchie visuelle forte pour mieux distinguer les niveaux :
-  //   - family : +35% taille, MAJUSCULES, sans indent, gros gap au-dessus,
-  //              trait fin de séparation en dessous
-  //   - subfamily : +15% taille, capitalize, indent +14pt, gap moyen au-dessus
-  //   - section : taille standard, indent +26pt, page number à droite
+  // Style constants for the hierarchical items (3 levels).
+  // Strong visual hierarchy to better distinguish the levels:
+  //   - family: +35% size, UPPERCASE, no indent, large gap above, thin
+  //             separator line below
+  //   - subfamily: +15% size, capitalize, indent +14pt, medium gap above
+  //   - section: standard size, indent +26pt, page number on the right
   const FAMILY_SIZE_RATIO = 1.35;
   const SUBFAMILY_SIZE_RATIO = 1.15;
   const SUBFAMILY_INDENT_PT = 14;
   const SECTION_INDENT_PT = 26;
-  // Gap supplémentaire AVANT un header (= air respirable, structure visible).
-  // Multiplié par yStep pour scaler avec la densité globale.
+  // Extra gap BEFORE a header (= breathing room, visible structure).
+  // Multiplied by yStep to scale with the overall density.
   const FAMILY_TOP_GAP_RATIO = 0.8;
   const SUBFAMILY_TOP_GAP_RATIO = 0.35;
-  // Couleur du trait sous family + couleur grisée pour sfamille (contraste
-  // visuel avec sections noires).
+  // Color of the line under family + grayed color for sfamily (visual contrast
+  // with the black sections).
   const FAMILY_UNDERLINE_COLOR = '#cccccc';
   const FAMILY_UNDERLINE_HEIGHT = 0.6; // pt
-  const SUBFAMILY_COLOR_LIGHTEN = 0.35; // 0=noir, 1=blanc
+  const SUBFAMILY_COLOR_LIGHTEN = 0.35; // 0=black, 1=white
 
   const hasSubFamilyHeaders = renderItems.some((it) => it.kind === 'subfamily');
   const sectionIndent = isHierarchical
@@ -379,16 +378,16 @@ export function buildTocFromTemplate(
     : 0;
   const subFamIndent = SUBFAMILY_INDENT_PT;
 
-  // ── Boucle externe : 1 itération = 1 page sommaire ───────────────────
+  // ── Outer loop: 1 iteration = 1 sommaire page ────────────────────────
   const pages: TocPage[] = [];
   let totalWritten = 0;
   for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
     const chunk = chunks[chunkIdx];
     const isFirstPage = chunkIdx === 0;
-    // Ops cumulés pour cette page :
-    // 1) Erases tpl (entries originales, titre, autres spans)
-    // 2) Titre "SOMMAIRE" si 1ère page
-    // 3) Items du chunk avec positions Y
+    // Accumulated ops for this page:
+    // 1) tpl erases (original entries, title, other spans)
+    // 2) "SOMMAIRE" title if it is the first page
+    // 3) chunk items with Y positions
     const ops: Operation[] = [
       ...eraseEntriesOps,
       ...eraseTitleOps,
@@ -398,18 +397,17 @@ export function buildTocFromTemplate(
       ops.push(insertTitleOp);
     }
     let written = 0;
-    // yCumulOffset : cumul des gaps supplémentaires ajoutés AVANT les headers
-    // (family/subfamily) pour aérer la hiérarchie visuelle. S'accumule à
-    // chaque header rencontré dans le chunk.
+    // yCumulOffset: cumulative extra gaps added BEFORE the headers
+    // (family/subfamily) to air out the visual hierarchy. Accumulates at each
+    // header encountered in the chunk.
     let yCumulOffset = 0;
     for (let i = 0; i < chunk.length; i++) {
       const item = chunk[i];
 
-      // Gap supplémentaire AVANT un header (sauf si c'est le 1er item de la
-      // page = pas de gap, on commence pile à yFirst).
-      // Le kind 'extra' (= "Cahier technique" et autres ajouts post-sections)
-      // recoit aussi un gap pour le distinguer visuellement du dernier item
-      // section produit.
+      // Extra gap BEFORE a header (unless it is the first item of the page =
+      // no gap, we start exactly at yFirst). The 'extra' kind (= "Cahier
+      // technique" and other post-section additions) also receives a gap to
+      // visually distinguish it from the last product-section item.
       if (i > 0) {
         if (item.kind === 'family') {
           yCumulOffset += yStep * FAMILY_TOP_GAP_RATIO;
@@ -423,7 +421,7 @@ export function buildTocFromTemplate(
       const y1 = y0 + lineH;
 
     if (item.kind === 'family') {
-      // Niveau 1 : taille +35%, MAJUSCULES, sans indent, sans page number.
+      // Level 1: +35% size, UPPERCASE, no indent, no page number.
       const famSize = refLabel.size * FAMILY_SIZE_RATIO;
       const famY1 = y0 + lineH * (famSize / refLabel.size);
       ops.push({
@@ -434,7 +432,7 @@ export function buildTocFromTemplate(
         size: famSize,
         color: refLabel.color,
       });
-      // Trait fin de séparation sous le header family (couleur claire gris).
+      // Thin separator line under the family header (light gray color).
       const underlineY = famY1 + 2;
       ops.push({
         op: 'erase_rect',
@@ -446,7 +444,7 @@ export function buildTocFromTemplate(
     }
 
     if (item.kind === 'subfamily') {
-      // Niveau 2 : taille +15%, capitalize, indent +14pt, couleur grisée.
+      // Level 2: +15% size, capitalize, indent +14pt, grayed color.
       const subSize = refLabel.size * SUBFAMILY_SIZE_RATIO;
       const styled = item.label.charAt(0).toUpperCase() + item.label.slice(1).toLowerCase();
       const subColor = lightenHex(refLabel.color, SUBFAMILY_COLOR_LIGHTEN);
@@ -462,7 +460,7 @@ export function buildTocFromTemplate(
       continue;
     }
 
-    // Niveau 3 (section) : indent max + page number a droite.
+    // Level 3 (section): max indent + page number on the right.
     ops.push({
       op: 'insert_text',
       bbox: [refLabel.bbox[0] + sectionIndent, y0, refLabel.bbox[2], y1],
@@ -483,9 +481,9 @@ export function buildTocFromTemplate(
     }
     written++;
 
-    // Description Claude sous l'entry section. Hauteur dispo = jusqu'a la
-    // prochaine row (header famille ou section). Pour la derniere : extra
-    // headroom jusqu'a la fin de la zone TOC.
+    // Claude description under the section entry. Available height = up to the
+    // next row (family header or section). For the last one: extra headroom up
+    // to the end of the TOC zone.
     if (!renderDescriptions) continue;
     const desc = descriptions[item.label];
     if (!desc) continue;
@@ -493,9 +491,9 @@ export function buildTocFromTemplate(
     const descSize = refLabel.size * 0.5;
     const lineHeight = descSize * 1.35;
     const x0 = refLabel.bbox[0] + sectionIndent + 4;
-    // La description est SOUS le label : la colonne du numéro de page (à droite,
-    // sur la ligne du label) est vide ici → on étend jusqu'au bord droit du
-    // numéro (au lieu de s'arrêter avant), ~+30% de largeur = moins de coupures.
+    // The description is UNDER the label: the page number column (on the
+    // right, on the label's line) is empty here → we extend to the right edge
+    // of the number (instead of stopping before), ~+30% width = fewer breaks.
     const x1 = Math.max(refPage.bbox[2], refPage.bbox[0] - 6, x0 + 50);
     const maxWidth = x1 - x0;
     const descColor = lightenHex(refLabel.color, 0.55);
@@ -504,18 +502,18 @@ export function buildTocFromTemplate(
       ? entries[entries.length - 1].labelSpan.bbox[3] + 30
       : yFirst + (i + 1) * yStep;
     const availH = Math.max(0, nextRowTop - labelBottom - 6);
-    // Arrondi (pas floor) : si ~1.7 ligne tient, on autorise 2 lignes — le pas
-    // entre entrées (yStep) est dimensionné pour 2 lignes de description, donc
-    // pas de chevauchement avec l'entrée suivante.
+    // Round (not floor): if ~1.7 lines fit, we allow 2 lines — the step
+    // between entries (yStep) is sized for 2 description lines, so no overlap
+    // with the next entry.
     const maxLines = Math.max(1, Math.round(availH / lineHeight));
     const all = wrapToLines(desc, maxWidth, descSize);
     const lines = all.slice(0, maxLines);
-    // Nettoie TOUJOURS la dernière ligne (pas seulement quand tronquée) : le
-    // modèle produit parfois lui-même une fin incomplète ("…, 60.", clause
-    // suspendue). trimToCompletePhrase garantit une phrase finie sur un fait.
+    // ALWAYS clean the last line (not only when truncated): the model
+    // sometimes produces an incomplete ending itself ("…, 60.", suspended
+    // clause). trimToCompletePhrase guarantees a sentence ending on a fact.
     if (lines.length > 0) {
       const cleaned = trimToCompletePhrase(lines[lines.length - 1]);
-      // Si le nettoyage vide la ligne (ex : 1 seul mot faible), on garde l'original.
+      // If the cleanup empties the line (e.g. a single weak word), we keep the original.
       lines[lines.length - 1] = cleaned || lines[lines.length - 1].trimEnd();
     }
     let cy = labelBottom + 5;
@@ -530,7 +528,7 @@ export function buildTocFromTemplate(
       });
       cy += lineHeight;
     }
-    }  // ← fin de la boucle interne sur le chunk
+    }  // ← end of the inner loop over the chunk
 
     pages.push({
       sourcePage: tocPage.pageNumber,
@@ -539,7 +537,7 @@ export function buildTocFromTemplate(
       isFirstPage,
     });
     totalWritten += written;
-  }  // ← fin de la boucle externe sur chunks
+  }  // ← end of the outer loop over chunks
 
   return {
     pages,
@@ -550,9 +548,8 @@ export function buildTocFromTemplate(
   };
 }
 
-/** Pour chaque span "p.XX" du template, retrouve le label aligne a gauche
- *  ET les spans de leader dots entre eux (a effacer aussi pour un rendu
- *  propre). */
+/** For each "p.XX" span of the template, finds the left-aligned label AND the
+ *  leader-dots spans between them (to erase too for a clean render). */
 function parseTocEntries(page: ExtractedPage): TocEntryTemplate[] {
   const spans = page.raw_spans ?? [];
   const pageSpans = spans.filter((s) => PAGE_NUM_RE.test(s.text.trim()));
@@ -563,14 +560,14 @@ function parseTocEntries(page: ExtractedPage): TocEntryTemplate[] {
       if (s === pageSpan) return false;
       const sY = (s.bbox[1] + s.bbox[3]) / 2;
       if (Math.abs(sY - yCenter) > Y_TOLERANCE_PT) return false;
-      // doit etre a gauche de la page number
+      // must be to the left of the page number
       if (s.bbox[0] >= pageSpan.bbox[0]) return false;
       const t = s.text.trim();
       if (t.length < 1) return false;
       return true;
     });
     if (sameLineSpans.length === 0) continue;
-    // Separe labels (texte alphabetique) vs dots leader
+    // Separate labels (alphabetic text) vs leader dots
     const isDotsOnly = (s: TextSpan) => /^[.\s]+$/.test(s.text.trim());
     const labels = sameLineSpans.filter((s) => !isDotsOnly(s) && s.text.trim().length >= 3);
     const dotsSpans = sameLineSpans.filter(isDotsOnly);
@@ -586,9 +583,9 @@ function parseTocEntries(page: ExtractedPage): TocEntryTemplate[] {
   return entries;
 }
 
-/** Construit la liste des nouvelles entries : 1 par section avec produits,
- *  triees dans l'ordre d'apparition dans le PDF final. La famille et la
- *  sous-famille sont deduites des produits de l'allocation (majoritaire). */
+/** Builds the list of new entries: 1 per section with products, sorted in
+ *  their order of appearance in the final PDF. The family and sub-family are
+ *  deduced from the allocation's products (majority). */
 function buildNewEntries(
   allocations: PageAllocation[],
   pagePlans: { source_page: number; page_number: number | null }[],
@@ -607,7 +604,7 @@ function buildNewEntries(
     const finalPage = sourceToFinal.get(alloc.sourcePage);
     if (finalPage == null) continue;
     seen.add(label);
-    // Famille + sous-famille majoritaires des produits de l'allocation
+    // Majority family + sub-family of the allocation's products
     const famCounts = new Map<string, number>();
     const subFamCounts = new Map<string, number>();
     for (const p of alloc.products) {
@@ -624,9 +621,9 @@ function buildNewEntries(
       : '';
     collected.push({ label, page: finalPage, order: finalPage, family, subFamily });
   }
-  // Tri : grouper par famille puis sous-famille (ordre = 1ere apparition de
-  // chacune), puis par numero de page au sein de chaque groupe. Evite l'effet
-  // "alternance" visuel quand les pages sortent dans un ordre non-hierarchique.
+  // Sort: group by family then sub-family (order = first appearance of each),
+  // then by page number within each group. Avoids the visual "alternation"
+  // effect when pages come out in a non-hierarchical order.
   const familyFirstPage = new Map<string, number>();
   const subFamilyFirstPage = new Map<string, number>();
   for (const c of collected) {
@@ -649,20 +646,20 @@ function buildNewEntries(
   }));
 }
 
-/** Regroupe les entries en items hierarchiques. Niveaux supportes :
- *  - 1 niveau  : sections seules (aucune family/sfamille fournie)
- *  - 2 niveaux : famille > sections (sfamille absente)
- *  - 3 niveaux : famille > sfamille > sections (le cas le + riche)
+/** Groups the entries into hierarchical items. Supported levels:
+ *  - 1 level  : sections only (no family/sub-family provided)
+ *  - 2 levels : family > sections (sub-family absent)
+ *  - 3 levels : family > sub-family > sections (the richest case)
  *
- *  Comportement : on materialise TOUS les niveaux qui ont au moins UNE
- *  valeur fournie (meme s'ils sont mono-valeur). Permet de toujours
- *  exposer la structure du catalogue dans le sommaire, peu importe la
- *  diversite des familles. Preserve l'ordre d'apparition (pas de tri alpha). */
+ *  Behavior: we materialize ALL levels that have at least ONE provided value
+ *  (even if single-valued). This always exposes the catalog's structure in
+ *  the table of contents, regardless of how diverse the families are.
+ *  Preserves appearance order (no alphabetical sort). */
 export function groupIntoHierarchy(entries: NewEntry[]): RenderedItem[] {
   const hasAnyFamily = entries.some((e) => !!e.family);
   const hasAnySubFamily = entries.some((e) => !!e.subFamily);
 
-  // Aucun niveau hierarchique fourni → sections seules
+  // No hierarchical level provided → sections only
   if (!hasAnyFamily && !hasAnySubFamily) {
     return entries.map((e) => ({ kind: 'section', label: e.label, pageNumber: e.pageNumber }));
   }
@@ -675,12 +672,12 @@ export function groupIntoHierarchy(entries: NewEntry[]): RenderedItem[] {
     const fam = e.family || '';
     const subFam = e.subFamily || '';
 
-    // Niveau 1 (family) : emettre header quand on change de famille
+    // Level 1 (family): emit a header when the family changes
     if (hasAnyFamily) {
       if (fam && fam !== currentFamily) {
         items.push({ kind: 'family', label: fam });
         currentFamily = fam;
-        currentSubFamily = null; // reset sfamille au changement de famille
+        currentSubFamily = null; // reset sub-family when the family changes
       } else if (!fam && currentFamily !== null) {
         items.push({ kind: 'family', label: 'Autres' });
         currentFamily = null;
@@ -688,23 +685,23 @@ export function groupIntoHierarchy(entries: NewEntry[]): RenderedItem[] {
       }
     }
 
-    // Niveau 2 (subfamily) : emettre header quand on change de sfamille
+    // Level 2 (subfamily): emit a header when the sub-family changes
     if (hasAnySubFamily && subFam && subFam !== currentSubFamily) {
       items.push({ kind: 'subfamily', label: subFam });
       currentSubFamily = subFam;
     }
 
-    // Niveau 3 (section) : toujours emis
+    // Level 3 (section): always emitted
     items.push({ kind: 'section', label: e.label, pageNumber: e.pageNumber });
   }
   return items;
 }
 
-// padBbox : voir utils/bbox.ts (factorisation audit #12).
+// padBbox: see utils/bbox.ts (audit #12 refactor).
 
-/** Eclaircit une couleur hex en la melangeant vers le blanc. amount=0 retourne
- *  la couleur d'origine, amount=1 retourne du blanc. Utilise pour creer une
- *  variante secondaire/grisee d'une couleur primaire de texte. */
+/** Lightens a hex color by mixing it toward white. amount=0 returns the
+ *  original color, amount=1 returns white. Used to create a secondary/greyed
+ *  variant of a primary text color. */
 function lightenHex(hex: string, amount: number): string {
   const m = hex.match(/^#?([0-9a-f]{6})$/i);
   if (!m) return hex;
@@ -716,9 +713,9 @@ function lightenHex(hex: string, amount: number): string {
   return `#${toHex(mix(r))}${toHex(mix(g))}${toHex(mix(b))}`;
 }
 
-/** Mots de liaison faibles (prépositions/articles/déterminants) : une phrase
- *  tronquée ne doit pas se terminer dessus. Inclut les formes élidées (d', l'…)
- *  gérées via le split sur l'apostrophe. */
+/** Weak linking words (prepositions/articles/determiners): a truncated
+ *  sentence must not end on one. Includes elided forms (d', l'…) handled via
+ *  the split on the apostrophe. */
 const TRUNC_WEAK_WORDS = new Set([
   'a', 'à', 'de', 'du', 'des', 'en', 'et', 'ou', 'le', 'la', 'les', 'un', 'une',
   'au', 'aux', 'par', 'pour', 'sur', 'sous', 'avec', 'dans', 'que', 'qui', 'dont',
@@ -726,9 +723,9 @@ const TRUNC_WEAK_WORDS = new Set([
   'mes', 'notre', 'nos', 'votre', 'vos', 'd', 'l', 'qu', 'n', 's', 'm', 't', 'j', 'c',
 ]);
 
-/** Mots de remplissage vides : une phrase ne doit pas se TERMINER dessus
- *  (interdits par le prompt mais le modèle les produit parfois). Comparés
- *  sans accents. */
+/** Empty filler words: a sentence must not END on one (forbidden by the
+ *  prompt but the model produces them sometimes). Compared without
+ *  accents. */
 const TRUNC_FILLER = new Set([
   'disponible', 'disponibles', 'varie', 'varies', 'divers', 'diverse', 'diverses',
   'different', 'differents', 'differente', 'differentes', 'plusieurs', 'multiple',
@@ -736,32 +733,33 @@ const TRUNC_FILLER = new Set([
 ]);
 const deaccent = (s: string): string => s.normalize('NFD').replace(/\p{Diacritic}/gu, '');
 
-/** Nettoie la fin d'une phrase TRONQUÉE pour qu'elle ne se termine pas sur un
- *  fragment suspendu (ponctuation, mot de liaison, élision "d'une"/"l'…"). Retire
- *  itérativement ponctuation + mots faibles finaux, puis pose un point.
- *  Ex : "Une barre de douche en Inox, d'une" → "Une barre de douche en Inox." */
+/** Cleans the end of a TRUNCATED sentence so it does not end on a dangling
+ *  fragment (punctuation, linking word, elision "d'une"/"l'…"). Iteratively
+ *  removes trailing punctuation + weak words, then adds a period.
+ *  Ex: "Une barre de douche en Inox, d'une" → "Une barre de douche en Inox." */
 export function trimToCompletePhrase(line: string): string {
   let t = (line ?? '').trimEnd();
-  // 1. Parenthèse/guillemet ouvert mais non fermé → on coupe le fragment incomplet
-  //    (ex : "…en Inox (dont" → "…en Inox").
+  // 1. Open but unclosed parenthesis/quote → cut the incomplete fragment
+  //    (ex: "…en Inox (dont" → "…en Inox").
   if ((t.match(/\(/g) || []).length > (t.match(/\)/g) || []).length) {
     const idx = t.lastIndexOf('(');
     if (idx >= 0) t = t.slice(0, idx).trimEnd();
   }
-  // BOUCLE EXTERNE : retirer un fragment en révèle souvent un autre (ex
-  // "…en 60 à" → on enlève "à", ce qui révèle "60" nu, qui révèle "en", qui
-  // révèle "disponibles"…). On répète TOUT le nettoyage jusqu'à stabilité.
+  // OUTER LOOP: removing one fragment often reveals another (ex
+  // "…en 60 à" → remove "à", which exposes a bare "60", which exposes "en",
+  // which exposes "disponibles"…). We repeat ALL the cleanup until stable.
   const MEASURE_LEAD = /\b(ø|diam[eè]tre|longueur|largeur|hauteur|profondeur|d[ée]bit|puissance|garantie|capacit)/i;
   const TAIL_PUNCT = /[\s,;:.…–—\-(«»"'’]+$/u;
   let outerPrev = '';
   while (t !== outerPrev && t.length > 0) {
     outerPrev = t;
-    // a. Nombre NU en fin (mesure coupée avant son unité) : "…longueurs 60" →
-    //    retire le chiffre orphelin. On NE touche PAS "…60 cm." (unité présente).
+    // a. BARE number at the end (a measurement cut off before its unit):
+    //    "…longueurs 60" → drop the orphan digit. We do NOT touch "…60 cm."
+    //    (unit present).
     t = t.replace(/[\s,;:.…]*\b\d+(?:[.,]\d+)?[\s.…]*$/u, '').trimEnd();
-    // b. CLAUSE de mesure incomplète en fin (lead-in coupé avant sa valeur) :
-    //    "…, longueurs" / "…, Ø" → on retire la clause (segment après la dernière
-    //    virgule) si pas de chiffre ET (lead-in de mesure OU ≤2 caractères).
+    // b. Incomplete measurement CLAUSE at the end (lead-in cut off before its
+    //    value): "…, longueurs" / "…, Ø" → drop the clause (segment after the
+    //    last comma) if no digit AND (measurement lead-in OR ≤2 characters).
     for (let guard = 0; guard < 4; guard++) {
       const ci = t.lastIndexOf(',');
       if (ci < 0) break;
@@ -772,12 +770,12 @@ export function trimToCompletePhrase(line: string): string {
       const isShortSymbol = !hasDigit && clause.replace(/[^\p{L}\p{N}]/gu, '').length <= 2;
       if (isMeasureLead || isShortSymbol) { t = t.slice(0, ci).trimEnd(); } else break;
     }
-    // c. "préposition/conjonction + quantité SANS son nom" : "…en deux", "…ou 2".
+    // c. "preposition/conjunction + quantity WITHOUT its noun": "…en deux", "…ou 2".
     t = t.replace(
       /[\s,;:.…]*\b(?:en|ou|et|de|du|des|à|a|avec)\s+(?:\d+|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\s*$/iu,
       '',
     ).trimEnd();
-    // d. Ponctuation/ouvrants + mots de liaison + filler + élisions en fin.
+    // d. Trailing punctuation/openers + linking words + filler + elisions.
     let prev = '';
     while (t !== prev && t.length > 0) {
       prev = t;
@@ -800,18 +798,18 @@ export function trimToCompletePhrase(line: string): string {
   return t;
 }
 
-/** Wrap simple par mots avec estimation de largeur. Pas precis au pixel mais
- *  evite les debords pour les polices proportionnelles standard. */
+/** Simple word-based wrap with width estimation. Not pixel-precise but avoids
+ *  overflow for standard proportional fonts. */
 function wrapToLines(text: string, maxWidth: number, fontSize: number): string[] {
-  // Coef largeur moyenne char Almanach Regular ~0.5 * fontSize (texte courant
-  // mixte casse). On marge a 0.55 pour eviter les debords sur lignes denses.
+  // Average char width for Almanach Regular ~0.5 * fontSize (mixed-case body
+  // text). We pad to 0.55 to avoid overflow on dense lines.
   const avgCharWidth = fontSize * 0.55;
   const charsPerLine = Math.max(20, Math.floor(maxWidth / avgCharWidth));
   const words = text.split(/\s+/);
   const lines: string[] = [];
   let current = '';
   for (const w of words) {
-    // Mot trop long pour une ligne entiere → coupe forcee
+    // Word too long for a whole line → forced break
     if (w.length > charsPerLine) {
       if (current.length > 0) lines.push(current);
       for (let i = 0; i < w.length; i += charsPerLine) {

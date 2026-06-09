@@ -1,31 +1,31 @@
 /**
- * Tracker de progression in-memory pour la generation V2.
+ * In-memory progress tracker for V2 generation.
  *
- * Le pipeline est synchrone (POST /generate ne rend qu'a la fin), mais on
- * publie l'avancee phase par phase ici pour qu'un client puisse poll
- * `/api/progress/:jobId` et afficher une vraie barre (pas du faux progress
- * base sur des timers).
+ * The pipeline is synchronous (POST /generate only returns at the end), but
+ * we publish progress phase by phase here so a client can poll
+ * `/api/progress/:jobId` and show a real bar (not fake progress based on
+ * timers).
  *
- * Cleanup auto : on supprime les entries > 1h pour eviter une fuite memoire
- * si un client poll mais que le POST a echoue silencieusement avant
- * d'appeler clearProgress.
+ * Auto cleanup: we remove entries older than 1h to avoid a memory leak
+ * if a client polls but the POST failed silently before calling
+ * clearProgress.
  */
 
 export interface ProgressState {
-  /** Phase courante : extract, classify, allocate, normalize, format,
+  /** Current phase: extract, classify, allocate, normalize, format,
    *  substitute, descriptions, toc, render, audit, finalize, done, error. */
   phase: string;
-  /** Pourcentage 0-100. */
+  /** Percentage 0-100. */
   pct: number;
-  /** Message FR visible utilisateur. */
+  /** User-facing FR message. */
   message: string;
-  /** Date.now() du dernier update. Sert au client pour detecter un blocage
-   *  (pas d'update depuis > 30s = warning "ralentissement"). */
+  /** Date.now() of the last update. Used by the client to detect a stall
+   *  (no update for > 30s = "slowdown" warning). */
   updatedAt: number;
-  /** True = pipeline termine (succes ou erreur). Le client peut arreter
-   *  le polling. */
+  /** True = pipeline finished (success or error). The client can stop
+   *  polling. */
   done: boolean;
-  /** Message d'erreur si done && erreur. */
+  /** Error message if done && error. */
   error?: string;
 }
 

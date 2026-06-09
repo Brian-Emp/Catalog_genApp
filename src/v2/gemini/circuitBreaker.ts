@@ -1,43 +1,43 @@
 /**
- * Circuit breaker Gemini : evite de bruler du temps en re-essayant un module
- * qui vient de prendre 3 x 429 d'affilee (quota daily probablement epuise).
+ * Gemini circuit breaker: avoids burning time retrying a module that just
+ * took 3 x 429 in a row (daily quota probably exhausted).
  *
- * Etat per-module (key = "<module>:<model>") :
- *  - closed : appels passent normalement
- *  - open   : appels skip court-circuit (pas de fetch, fail immediat)
+ * Per-module state (key = "<module>:<model>"):
+ *  - closed: calls pass through normally
+ *  - open  : calls are short-circuited (no fetch, immediate failure)
  *
- * Transition closed → open : 3 erreurs 429 consecutives sans succes interleave.
- * Transition open → closed : reset manuel via resetCircuit() ou trip TTL (5min).
+ * Transition closed → open: 3 consecutive 429 errors with no success in between.
+ * Transition open → closed: manual reset via resetCircuit() or trip TTL (5min).
  *
- * Le breaker est OPT-IN : on ne court-circuite que les modules qui ont ete
- * marques abandonnes. Default = jamais ouvert (compatibilite max).
+ * The breaker is OPT-IN: we only short-circuit modules that have been marked
+ * abandoned. Default = never open (maximum compatibility).
  */
 
-const TRIP_TTL_MS = 5 * 60 * 1000; // 5min : on reteste apres
+const TRIP_TTL_MS = 5 * 60 * 1000; // 5min: we retry after this
 const FAILURE_THRESHOLD = 3;
 
-// ─── Quota "froid" global (cross-module, cross-model) ───────────────────────
-// Marque pose quand une CASCADE complete echoue sur quota (aucun modele n'a de
-// budget). Les taches LLM auxiliaires (audit, descriptions, enrich) consultent
-// ce flag AVANT leur travail couteux (rasterisation de pages, cascade de N
-// modeles) et skippent si froid → la generation ne gaspille pas de temps quand
-// le quota est globalement epuise. TTL court : on reteste vite (un modele peut
-// recuperer son quota par-minute).
+// ─── Global "cold" quota (cross-module, cross-model) ────────────────────────
+// Flag set when a full CASCADE fails on quota (no model has any
+// budget). Auxiliary LLM tasks (audit, descriptions, enrich) check
+// this flag BEFORE their expensive work (page rasterization, cascade of N
+// models) and skip if cold → generation does not waste time when the
+// quota is globally exhausted. Short TTL: we retry quickly (a model can
+// recover its per-minute quota).
 const QUOTA_COLD_TTL_MS = 45 * 1000;
 let quotaColdUntil = 0;
 
-/** Marque le quota Gemini "froid" (une cascade complete vient d'echouer). */
+/** Marks the Gemini quota as "cold" (a full cascade just failed). */
 export function markQuotaCold(): void {
   quotaColdUntil = Date.now() + QUOTA_COLD_TTL_MS;
 }
 
-/** Le quota Gemini est-il "froid" (cascade complete echouee tres recemment) ?
- *  Les taches auxiliaires peuvent alors court-circuiter leur travail couteux. */
+/** Is the Gemini quota "cold" (a full cascade failed very recently)?
+ *  Auxiliary tasks can then short-circuit their expensive work. */
 export function isQuotaCold(): boolean {
   return Date.now() < quotaColdUntil;
 }
 
-/** Reset du flag froid (test / nouveau jour / quota refresh). */
+/** Resets the cold flag (test / new day / quota refresh). */
 export function clearQuotaCold(): void {
   quotaColdUntil = 0;
 }
@@ -54,16 +54,16 @@ function key(module: string, model: string): string {
 }
 
 /**
- * Verifie si le circuit est ouvert pour (module, model). Si oui : skip l'appel
- * et retourne true (caller doit fail-fast). Si non : false (appel autorise).
+ * Checks whether the circuit is open for (module, model). If so: skip the call
+ * and return true (caller must fail-fast). If not: false (call allowed).
  *
- * Auto-reset si TRIP_TTL_MS ecoule depuis l'ouverture.
+ * Auto-reset if TRIP_TTL_MS has elapsed since opening.
  */
 export function isCircuitOpen(module: string, model: string): boolean {
   const s = state.get(key(module, model));
   if (!s || s.openedAt === null) return false;
   if (Date.now() - s.openedAt > TRIP_TTL_MS) {
-    // TTL ecoule, on retente (half-open)
+    // TTL elapsed, we retry (half-open)
     s.openedAt = null;
     s.consecutiveFailures = 0;
     return false;
@@ -72,10 +72,10 @@ export function isCircuitOpen(module: string, model: string): boolean {
 }
 
 /**
- * Notifie un echec 429 (ou similaire quota). Si seuil atteint : ouvre le circuit.
+ * Notifies a 429 failure (or similar quota error). If threshold reached: opens the circuit.
  */
 export function recordFailure(module: string, model: string, errorCode?: number): void {
-  // On ne trip que sur 429 (rate limit/quota). Les 5xx sont transient.
+  // We only trip on 429 (rate limit/quota). 5xx errors are transient.
   if (errorCode !== 429) return;
   const k = key(module, model);
   const s = state.get(k) ?? { consecutiveFailures: 0, openedAt: null };
@@ -87,7 +87,7 @@ export function recordFailure(module: string, model: string, errorCode?: number)
 }
 
 /**
- * Notifie un succes : reset le compteur d'echecs consecutifs.
+ * Notifies a success: resets the consecutive failure counter.
  */
 export function recordSuccess(module: string, model: string): void {
   const s = state.get(key(module, model));
@@ -97,7 +97,7 @@ export function recordSuccess(module: string, model: string): void {
   }
 }
 
-/** Reset manuel d'un circuit (ex : nouveau jour, quota refresh). */
+/** Manual reset of a circuit (e.g. new day, quota refresh). */
 export function resetCircuit(module?: string, model?: string): void {
   if (module && model) {
     state.delete(key(module, model));
@@ -106,7 +106,7 @@ export function resetCircuit(module?: string, model?: string): void {
   }
 }
 
-/** Snapshot pour diagnostic / UI. */
+/** Snapshot for diagnostics / UI. */
 export function getCircuitState(): Record<string, { failures: number; open: boolean; openedAt: number | null }> {
   const out: Record<string, { failures: number; open: boolean; openedAt: number | null }> = {};
   for (const [k, s] of state) {

@@ -1,15 +1,15 @@
 /**
- * Orchestrator V2 engine — pipeline complet.
+ * V2 engine orchestrator — full pipeline.
  *
- * Phases (dans l'ordre strict du cahier des charges) :
- *   Phase 0 — inputs : extract C++ + parse produits par section
- *   Phase 1.1 — classify : kind par page (product/toc/glossaire/intercalaire/identity)
- *   Phase 2 — allocate : choix pages produit selon besoin (1 section = 1 page)
- *   Phase 1.2 — claudeAudit : Claude valide + corrige + ajoute des drops
- *   Phase 3 — substitute : ops par bloc (style emprunte du template)
- *   Phase final — assemblage Plan + renumerotation + render C++ (le sommaire
- *     sur mesure ex-Phase 4 est desactive : trop fragile sur sommaires
- *     design — voir tocBuilder.ts dans l'historique git pour reactivation).
+ * Phases (in the strict order of the spec):
+ *   Phase 0 — inputs: C++ extract + parse products by section
+ *   Phase 1.1 — classify: kind per page (product/toc/glossaire/intercalaire/identity)
+ *   Phase 2 — allocate: pick product pages based on need (1 section = 1 page)
+ *   Phase 1.2 — claudeAudit: Claude validates + corrects + adds drops
+ *   Phase 3 — substitute: ops per block (style borrowed from the template)
+ *   Final phase — Plan assembly + renumbering + C++ render (the custom
+ *     table of contents, ex-Phase 4, is disabled: too fragile on design
+ *     contents pages — see tocBuilder.ts in the git history to reactivate).
  */
 
 import { promises as fs } from 'fs';
@@ -54,9 +54,9 @@ import { INSERT_TEXT_BASELINE_OFFSET_PT } from './insertText';
 import { isLightColor } from './engine/safeColor';
 import { pdfHash, saveToCache, tryRestoreFromCache } from './extractCache';
 
-/** Retourne la valeur majoritaire d'un champ optionnel sur une liste de
- *  PlanProducts. Vide si tous absents. Utilisé pour récupérer la famille /
- *  sous-famille d'une allocation (majorité parmi ses produits). */
+/** Returns the majority value of an optional field over a list of
+ *  PlanProducts. Empty if all are absent. Used to recover the family /
+ *  sub-family of an allocation (majority among its products). */
 function majorityField(products: PlanProduct[], field: 'family' | 'subFamily' | 'section'): string {
   const counts = new Map<string, number>();
   for (const p of products) {
@@ -77,78 +77,78 @@ export interface EngineOrchestratorOptions {
   projectDir: string;
   binaryBin?: string;
   claudeBin?: string;
-  /** Active l'audit Claude (~2-3 min). Defaut false (pipeline rapide ~2s). */
+  /** Enables the Claude audit (~2-3 min). Default false (fast pipeline ~2s). */
   enableClaudeAudit?: boolean;
-  /** Active l'audit visuel final par Claude (vision sur N pages echantillonnees
-   *  apres render). Default FALSE — l'audit prend ~60s sur 80s du pipeline,
-   *  ratio cout/benefice insuffisant pour l'usage courant. Activer via flag
-   *  pour les generations critiques (release client par exemple). */
+  /** Enables the final visual audit by Claude (vision over N sampled pages
+   *  after render). Default FALSE — the audit takes ~60s out of the 80s
+   *  pipeline, an insufficient cost/benefit ratio for everyday use. Enable via
+   *  flag for critical generations (a client release, for example). */
   enableVisualAudit?: boolean;
-  /** Taille echantillon pour l'audit visuel. Default 6. 'all' pour toutes
-   *  les pages substituees (couteux). */
+  /** Sample size for the visual audit. Default 6. 'all' for every
+   *  substituted page (expensive). */
   visualAuditSampleSize?: number | 'all';
-  /** Active l'audit visuel via Gemini Vision (gratuit free tier + pas
-   *  d'expiration auth, alternative a Claude). Default TRUE : Gemini est
-   *  gratuit donc safe en defaut. Skip gracieux si GEMINI_KEY absente.
-   *  Mettre FALSE pour desactiver explicitement. Cumulable avec
-   *  enableVisualAudit (Claude) pour cross-check. */
+  /** Enables the visual audit via Gemini Vision (free tier + no auth
+   *  expiration, an alternative to Claude). Default TRUE: Gemini is
+   *  free so it is safe as a default. Graceful skip if GEMINI_KEY is absent.
+   *  Set to FALSE to disable explicitly. Stackable with
+   *  enableVisualAudit (Claude) for cross-checking. */
   enableGeminiAudit?: boolean;
-  /** Active l'audit de coherence globale via Gemini Pro Vision (analyse
-   *  cross-page : typo / couleurs / hierarchie / alignements / pagination).
-   *  Un seul appel batch, context 1M tokens. Default FALSE. */
+  /** Enables the global coherence audit via Gemini Pro Vision (cross-page
+   *  analysis: typo / colors / hierarchy / alignments / pagination).
+   *  A single batch call, 1M token context. Default FALSE. */
   enableGeminiCoherenceAudit?: boolean;
-  /** Active la normalisation des spec keys produit au style template via
-   *  Claude (declenche uniquement si mismatch detecte > 50%). Default true. */
+  /** Enables normalization of product spec keys to the template style via
+   *  Claude (triggered only if a mismatch > 50% is detected). Default true. */
   enableSpecNormalization?: boolean;
-  /** Active le reformatting des spec values au style template (ex "60" →
-   *  "60 cm" si template utilise les unites). Default true. */
+  /** Enables reformatting of spec values to the template style (e.g. "60" →
+   *  "60 cm" if the template uses units). Default true. */
   enableValueFormatting?: boolean;
-  /** Active la generation des descriptions marketing (Gemini/Claude) pour le
-   *  sommaire. Default TRUE (on garde la feature). Decouple de enableTemplateToc :
-   *  le TOC se rend de toute facon (deterministe), sans descriptions il n'a juste
-   *  pas de blurbs. Fail-fast sur quota mort (skip rapide, jamais bloquant). */
+  /** Enables generation of marketing descriptions (Gemini/Claude) for the
+   *  table of contents. Default TRUE (we keep the feature). Decoupled from
+   *  enableTemplateToc: the TOC renders anyway (deterministic), it just has no
+   *  blurbs without descriptions. Fail-fast on dead quota (fast skip, never blocking). */
   enableGeminiDescriptions?: boolean;
-  /** Active la reutilisation de la page sommaire originale du template :
-   *  nettoie les anciennes entries et ecrit les sections du nouveau catalogue
-   *  en preservant la deco / typo / mise en page d'origine. Place la page TOC
-   *  juste avant la 1ere page produit substituee. Default true. */
+  /** Enables reuse of the template's original table-of-contents page:
+   *  clears the old entries and writes the new catalog's sections while
+   *  preserving the original decoration / typography / layout. Places the TOC
+   *  page just before the 1st substituted product page. Default true. */
   enableTemplateToc?: boolean;
-  /** Active la chaine IntentPlan (approche BC) : construit un PageSchema par
-   *  page produit substituee + persiste un plan_v2.json informationnel a cote
-   *  du plan bas niveau. Le binaire C++ ne voit aucun changement.
+  /** Enables the IntentPlan chain (BC approach): builds one PageSchema per
+   *  substituted product page + persists an informational plan_v2.json next to
+   *  the low-level plan. The C++ binary sees no change.
    *
-   *  IMPORTANT : default TRUE (intent par defaut). Pour desactiver explicitement,
-   *  passer `enableIntentPlan: false`. Le code utilise `opts.enableIntentPlan
-   *  !== false` (cf engineOrchestrator.ts:554 useIntentSubstitute). Ce choix
-   *  vient de BC_test ou intent etait le default. Si tu veux le pipeline
-   *  V2 procedural strict (substitutor.ts seul), passe false explicitement. */
+   *  IMPORTANT: default TRUE (intent by default). To disable explicitly,
+   *  pass `enableIntentPlan: false`. The code uses `opts.enableIntentPlan
+   *  !== false` (cf engineOrchestrator.ts:554 useIntentSubstitute). This choice
+   *  comes from BC_test where intent was the default. If you want the strict
+   *  procedural V2 pipeline (substitutor.ts alone), pass false explicitly. */
   enableIntentPlan?: boolean;
-  /** Active la boucle Claude → IntentOps → re-render apres le 1er render
-   *  C++ (approche BC). Necessite enableIntentPlan true (sinon pas de
-   *  schemas dispo). Defaut FALSE. Cout : ~$0.02-0.05/page * sample * iter. */
+  /** Enables the Claude → IntentOps → re-render loop after the 1st C++
+   *  render (BC approach). Requires enableIntentPlan true (otherwise no
+   *  schemas available). Default FALSE. Cost: ~$0.02-0.05/page * sample * iter. */
   enableIntentLoop?: boolean;
-  /** Plafond de pages echantillonees par passe de boucle intent. Defaut 5. */
+  /** Cap on pages sampled per intent-loop pass. Default 5. */
   intentLoopSampleSize?: number;
-  /** Nombre max de passes Claude → re-render. Defaut 2. */
+  /** Max number of Claude → re-render passes. Default 2. */
   intentLoopMaxIterations?: number;
-  /** Callback de progression (phase, pct, message FR). Invoque a chaque
-   *  transition de phase. Peut etre absent (pas de tracker cote serveur). */
+  /** Progress callback (phase, pct, FR message). Invoked at each phase
+   *  transition. May be absent (no tracker on the server side). */
   onProgress?: (phase: string, pct: number, message: string) => void;
 }
 
-/** Usage Gemini agrege pour CETTE generation (diagnostic UI). */
+/** Aggregated Gemini usage for THIS generation (UI diagnostics). */
 export interface GeminiUsage {
-  /** Appels par modele (nom API → nombre) pour cette generation. Permet a l'UI
-   *  d'afficher le(s) modele(s) reellement utilise(s) et les bascules. */
+  /** Calls per model (API name → count) for this generation. Lets the UI
+   *  show which model(s) were actually used and the switches. */
   byModel: Record<string, number>;
-  /** Detail par modele (appels / ok / quota429) → l'UI montre quels modeles
-   *  de la cascade sont epuises vs sains. */
+  /** Detail per model (calls / ok / quota429) → the UI shows which cascade
+   *  models are exhausted vs healthy. */
   byModelDetail?: Record<string, { calls: number; ok: number; quota: number }>;
   totalCalls: number;
   okCalls: number;
-  /** Bascules de cascade (un appel a du passer a un modele de secours). */
+  /** Cascade switches (a call had to fall back to a backup model). */
   fallbacks: number;
-  /** Erreurs 429 (quota) rencontrees. */
+  /** 429 (quota) errors encountered. */
   calls429: number;
 }
 
@@ -167,15 +167,15 @@ export interface EngineOrchestratorResult {
     substituteMs: number;
     renderMs: number;
     profileSource: string;
-    /** Nb total de pages produit du template (kind='product') avant allocator. */
+    /** Total number of template product pages (kind='product') before allocator. */
     productPagesTotal?: number;
-    /** Nb de pages produit effectivement allouees a un produit du plan. */
+    /** Number of product pages actually allocated to a plan product. */
     productPagesAllocated?: number;
-    /** Ratio allocated/total (0..1). Indicateur d'efficacite allocator.
-     *  Sur Catalogue A : 8/188 = 0.04 (catalogue volumineux, peu de produits).
-     *  Sur catalogue dense bien dimensionne : > 0.5. */
+    /** allocated/total ratio (0..1). Allocator efficiency indicator.
+     *  On Catalogue A: 8/188 = 0.04 (large catalog, few products).
+     *  On a dense, well-sized catalog: > 0.5. */
     allocationRatio?: number;
-    /** Repartition raisons de drop des pages non allouees. */
+    /** Breakdown of drop reasons for the non-allocated pages. */
     dropReasonCounts?: Record<string, number>;
     claudeCorrections: number;
     claudeCostUsd?: number;
@@ -202,52 +202,52 @@ export interface EngineOrchestratorResult {
   errors: string[];
   claudeNotes: string[];
   visualAuditIssues?: VisualAuditIssue[];
-  /** Issues d'audit Gemini (visuel page + coherence cross-page) agregees pour
-   *  l'UI "pages a verifier" (garde-fou de relecture). undefined si aucune. */
+  /** Gemini audit issues (per-page visual + cross-page coherence) aggregated
+   *  for the "pages to review" UI (proofreading safeguard). undefined if none. */
   geminiAuditIssues?: GeminiAuditIssue[];
-  /** Usage Gemini de CETTE generation (modeles utilises + bascules de cascade)
-   *  pour le diagnostic UI. undefined si aucun appel Gemini. */
+  /** Gemini usage for THIS generation (models used + cascade switches)
+   *  for UI diagnostics. undefined if no Gemini call. */
   geminiUsage?: GeminiUsage;
-  /** Plan final assemble (pour post-processing : TOC, exports). */
+  /** Final assembled plan (for post-processing: TOC, exports). */
   plan?: Plan;
-  /** Allocations produits → pages template (pour post-processing). */
+  /** Product → template page allocations (for post-processing). */
   allocations?: PageAllocation[];
 }
 
-/** Issue d'audit Gemini unifiee (visuel page-par-page OU coherence cross-page),
- *  format leger pour l'UI "pages a verifier". */
+/** Unified Gemini audit issue (per-page visual OR cross-page coherence),
+ *  lightweight format for the "pages to review" UI. */
 export interface GeminiAuditIssue {
-  /** Page finale principale concernee (1-based). */
+  /** Main final page concerned (1-based). */
   page: number;
-  /** Pages multiples (audit coherence cross-page). */
+  /** Multiple pages (cross-page coherence audit). */
   pages?: number[];
   severity: 'critical' | 'minor';
   category: string;
   description: string;
   productName?: string;
-  /** Origine : audit visuel page-par-page ou audit de coherence globale. */
+  /** Origin: per-page visual audit or global coherence audit. */
   source: 'visual' | 'coherence';
 }
 
-// En prod Docker (Linux x64/arm64) le binaire est installe a
-// /usr/local/bin/catgen-pdf. En local macOS ARM, Homebrew utilise
-// /opt/homebrew/bin/. On accepte les 2 ; en dev override via env
-// CATGEN_BIN (recommande).
+// In Docker prod (Linux x64/arm64) the binary is installed at
+// /usr/local/bin/catgen-pdf. On local macOS ARM, Homebrew uses
+// /opt/homebrew/bin/. We accept both; in dev override via the
+// CATGEN_BIN env var (recommended).
 const LINUX_BINARY = '/usr/local/bin/catgen-pdf';
 const HOMEBREW_BINARY = '/opt/homebrew/bin/catgen-pdf';
 function resolveDefaultBinary(): string {
-  // Priorite env > local Homebrew (si fichier existe) > Linux. Le check
-  // d'existence se fait au lancement du child_process via spawn (gere
-  // ENOENT). Ici on retourne juste le path par defaut le plus probable.
+  // Priority env > local Homebrew (if the file exists) > Linux. The
+  // existence check happens when the child_process is launched via spawn
+  // (handles ENOENT). Here we just return the most likely default path.
   if (process.env.CATGEN_BIN) return process.env.CATGEN_BIN;
   if (process.platform === 'darwin') return HOMEBREW_BINARY;
   return LINUX_BINARY;
 }
 
 /**
- * Pipeline V2 complet : extract → classify → allocate → substitute → render.
- * Le nettoyage du workDir est delegue au caller (cf generate.ts qui a besoin
- * de lire plan.json APRES retour pour le copier a cote du PDF).
+ * Full V2 pipeline: extract → classify → allocate → substitute → render.
+ * Cleanup of the workDir is delegated to the caller (cf generate.ts which
+ * needs to read plan.json AFTER return to copy it next to the PDF).
  */
 export async function substituteCatalogEngine(
   opts: EngineOrchestratorOptions,
@@ -257,14 +257,14 @@ export async function substituteCatalogEngine(
   const claudeNotes: string[] = [];
   const progress = opts.onProgress ?? (() => {});
 
-  // Reset des accumulateurs module-level de blockDetector : sur un serveur
-  // long-lived, droppedPages/horizontalLayoutPages s'empilaient entre
-  // generations (fuite lente + debug melange). On repart propre a chaque run.
+  // Reset blockDetector's module-level accumulators: on a long-lived
+  // server, droppedPages/horizontalLayoutPages piled up across
+  // generations (slow leak + mixed-up debugging). We start clean on each run.
   resetDroppedPages();
   resetHorizontalLayoutPages();
 
-  // Snapshot stats Gemini avant pipeline pour mesurer l'usage de CETTE
-  // generation (vs cumul global du process).
+  // Snapshot Gemini stats before the pipeline to measure the usage of THIS
+  // generation (vs the global process total).
   const { snapshotMark, statsSince, formatAggregate } = await import('./gemini/stats');
   const geminiStatsMark = snapshotMark();
 
@@ -278,13 +278,13 @@ export async function substituteCatalogEngine(
     await fs.copyFile(opts.templatePdfPath, workTemplatePdf);
     await fs.writeFile(workProducts, JSON.stringify(opts.products, null, 2), 'utf8');
   } catch (e) {
-    // Echec setup workDir (ENOSPC, perms) → echec propre.
+    // workDir setup failure (ENOSPC, perms) → clean failure.
     return failResultBootstrap(`setup workDir failed: ${(e as Error).message}`);
   }
 
-  // ─── Extract C++ ──────────────────────────────────────────────────────────
-  // Cache hit ? Si meme template hash deja extrait, on copie les JSONs et
-  // on saute le binaire (~700ms → ~30ms). Sinon extract normal + save.
+  // ─── C++ extract ──────────────────────────────────────────────────────────
+  // Cache hit? If the same template hash was already extracted, we copy the
+  // JSONs and skip the binary (~700ms → ~30ms). Otherwise normal extract + save.
   const extractStart = Date.now();
   const templateHash = await pdfHash(workTemplatePdf).catch(() => null);
   let extractCacheHit = false;
@@ -300,8 +300,8 @@ export async function substituteCatalogEngine(
         stderrLogPath: path.join(opts.workDir, 'extract.stderr.log'),
       });
   if (!extractCacheHit && extractRes.ok && templateHash) {
-    // Save best-effort : si filesystem cache fail (perms, ENOSPC), on
-    // continue sans planter le pipeline. Le prochain run re-extractera.
+    // Best-effort save: if the filesystem cache fails (perms, ENOSPC), we
+    // continue without crashing the pipeline. The next run will re-extract.
     await saveToCache(templateHash, workTemplatesDir).catch((e: unknown) => {
       warnings.push(`extract cache save failed (non-fatal): ${(e as Error).message}`);
     });
@@ -342,15 +342,15 @@ export async function substituteCatalogEngine(
     });
   }
 
-  // ─── Orientation pages (portrait / paysage) ───────────────────────────────
-  // Détecte l'orientation dominante sur l'échantillon de pages extraites.
-  // Catalogues type Catalogue A/Catalogue E = paysage (legacy). Catalogues type Catalogue C /
-  // Catalogue B Jardin = portrait. Le pipeline supporte les 2 orientations
-  // depuis l'introduction du profile heuristique adaptatif. Pas de warning
-  // explicite (recalibrage : ce n'est plus une limitation).
+  // ─── Page orientation (portrait / landscape) ──────────────────────────────
+  // Detects the dominant orientation over the sample of extracted pages.
+  // Catalogs like Catalogue A/Catalogue E = landscape (legacy). Catalogs like Catalogue C /
+  // Catalogue B Jardin = portrait. The pipeline supports both orientations
+  // since the introduction of the adaptive heuristic profile. No explicit
+  // warning (recalibrated: this is no longer a limitation).
   const orientation: PageOrientation = dominantOrientation(pages);
 
-  // ─── Profile typo ─────────────────────────────────────────────────────────
+  // ─── Typo profile ─────────────────────────────────────────────────────────
   const profile = await detectProfile({
     pages,
     heuristicOnly: true,
@@ -364,19 +364,19 @@ export async function substituteCatalogEngine(
   }
 
 
-  // ─── Phase 0 : inputs ────────────────────────────────────────────────────
+  // ─── Phase 0: inputs ─────────────────────────────────────────────────────
   progress('classify', 14, 'Détection des blocs et sections…');
   const analysis = analyzeProducts(opts.products);
 
-  // ─── Phase 1.1 : classify ────────────────────────────────────────────────
+  // ─── Phase 1.1: classify ─────────────────────────────────────────────────
   const classifyStart = Date.now();
   const baseClassifications = classifyAllPages(pages, profile);
   const classifyMs = Date.now() - classifyStart;
 
-  // P2.5 : alerte forte si aucun bloc produit detecte alors qu'on a des
-  // produits a substituer. Template "purement visuel" sans key/value
-  // typographique, ou heuristique blocDetector incompatible. Pipeline
-  // continuera mais produira 0 substitution.
+  // P2.5: strong alert if no product block is detected while we have
+  // products to substitute. "Purely visual" template with no typographic
+  // key/value, or incompatible blocDetector heuristic. The pipeline will
+  // continue but will produce 0 substitutions.
   const totalBlocks = baseClassifications.reduce((s, c) => s + c.blocks.length, 0);
   if (totalBlocks === 0 && opts.products.length > 0) {
     warnings.push(
@@ -386,12 +386,11 @@ export async function substituteCatalogEngine(
         'profil typographique fallback, ou patterns trop stricts.',
     );
   }
-  // Detection "template non-standard" : tres peu de pages produit
-  // detectees par rapport au nombre total de pages, OU confidence
-  // moyenne tres basse. Indique probablement un layout que V2 ne sait
-  // pas traiter proprement (tableaux multi-produits, merchandising,
-  // catalogue tres design...). Le pipeline va quand meme essayer mais
-  // le rendu sera probablement chevauche / incoherent.
+  // "Non-standard template" detection: very few product pages detected
+  // relative to the total page count, OR very low average confidence.
+  // Likely indicates a layout that V2 cannot handle cleanly (multi-product
+  // tables, merchandising, very design-heavy catalog...). The pipeline will
+  // still try but the rendering will probably be overlapping / inconsistent.
   const productPages = baseClassifications.filter((c) => c.kind === 'product').length;
   const productRatio = pages.length > 0 ? productPages / pages.length : 0;
   if (productPages > 0 && productRatio < 0.05) {
@@ -404,11 +403,11 @@ export async function substituteCatalogEngine(
     );
   }
 
-  // ─── Phase 1.5 : inférence de section depuis le template ────────────────
-  // Si la majorité des produits n'a pas de section renseignée mais le template
-  // contient plusieurs sections distinctes (banners), on infère pour chaque
-  // produit la section la + proche par tokens du nom. Permet de supporter
-  // les XLSX simples (sans colonne famille/section).
+  // ─── Phase 1.5: section inference from the template ─────────────────────
+  // If most products have no section set but the template contains several
+  // distinct sections (banners), we infer for each product the closest
+  // section by name tokens. Lets us support simple XLSX files (without a
+  // family/section column).
   let effectiveAnalysis = analysis;
   {
     const emptyCount = opts.products.filter((p) => !(p.section ?? '').trim()).length;
@@ -431,25 +430,25 @@ export async function substituteCatalogEngine(
         warnings.push(
           `inference section : ${inferred}/${emptyCount} produit(s) sans section associes via tokens du nom (${candidateSections.length} sections candidates)`
         );
-        // Re-analyse avec les sections inférées
+        // Re-analyze with the inferred sections
         effectiveAnalysis = analyzeProducts(opts.products);
       }
     }
   }
 
-  // ─── Phase 2 : allocate ──────────────────────────────────────────────────
+  // ─── Phase 2: allocate ───────────────────────────────────────────────────
   progress('allocate', 20, 'Allocation des pages produit…');
   const allocateStart = Date.now();
   const allocation = allocatePages(baseClassifications, effectiveAnalysis, {
-    // Si trop de produits pour les pages template dispo, on autorise
-    // l'overflow grille : downstream `gridLayout` synthetise des blocs
-    // additionnels par translation verticale du bloc tpl ref. Permet de
-    // ne pas drop des produits silencieusement.
+    // If there are too many products for the available template pages, we
+    // allow grid overflow: downstream `gridLayout` synthesizes additional
+    // blocks by vertically translating the reference tpl block. Lets us
+    // avoid dropping products silently.
     allowGridOverflow: true,
   });
   const allocateMs = Date.now() - allocateStart;
 
-  // Stats allocator pour response API (quick win audit)
+  // Allocator stats for the API response (quick win audit)
   const productPagesTotal = baseClassifications.filter(
     (c) => c.kind === 'product',
   ).length;
@@ -461,9 +460,9 @@ export async function substituteCatalogEngine(
     dropReasonCounts[d.reason] = (dropReasonCounts[d.reason] ?? 0) + 1;
   }
 
-  // Warnings sur les pages produit non utilisees (sur-allocation template).
+  // Warnings about unused product pages (template over-allocation).
   if (allocation.droppedProductPages.length > 0) {
-    // Breakdown des raisons pour observabilite (audit bloquants production)
+    // Reason breakdown for observability (production-blocking audit)
     const reasonCounts = new Map<string, number>();
     for (const d of allocation.droppedPageDetails ?? []) {
       reasonCounts.set(d.reason, (reasonCounts.get(d.reason) ?? 0) + 1);
@@ -472,15 +471,15 @@ export async function substituteCatalogEngine(
       .sort((a, b) => b[1] - a[1])
       .map(([r, n]) => `${r}=${n}`)
       .join(', ');
-    // Stat ratio : ${dropped}/${total} = ${pct}% drop (utile pour comprendre
-    // si c'est normal — peu de produits sur gros catalogue — ou pathologique).
+    // Ratio stat: ${dropped}/${total} = ${pct}% drop (useful to understand
+    // whether it's normal — few products on a large catalog — or pathological).
     const productPagesTotal = baseClassifications.filter(
       (c) => c.kind === 'product',
     ).length;
     const dropPct = productPagesTotal > 0
       ? Math.round(allocation.droppedProductPages.length / productPagesTotal * 100)
       : 0;
-    // Limite l'affichage des pages a 20 (sinon le warning fait 500 chars)
+    // Limit the page display to 20 (otherwise the warning hits 500 chars)
     const pagesList = allocation.droppedProductPages.slice(0, 20).join(', ');
     const more = allocation.droppedProductPages.length > 20
       ? `, +${allocation.droppedProductPages.length - 20} autres`
@@ -499,12 +498,12 @@ export async function substituteCatalogEngine(
     );
   }
 
-  // ─── Phase descriptions PARALLELE (Claude Haiku, ~17s) ──────────────────
-  // generateDescriptions ne lit que les NOMS des produits + premieres specs
-  // (capturees dans le prompt SYNCHRONEMENT a la construction). Les
-  // mutations ulterieures de products par normalize/format n'affectent pas
-  // l'appel deja en vol. On lance ici en arriere-plan, await dans le
-  // bloc TOC. Gain : ~15s sur le total (overlap avec norm+format+substitute).
+  // ─── PARALLEL descriptions phase (Claude Haiku, ~17s) ───────────────────
+  // generateDescriptions only reads the product NAMES + first specs
+  // (captured into the prompt SYNCHRONOUSLY at build time). Later
+  // mutations of products by normalize/format do not affect the call
+  // already in flight. We launch it here in the background, await it in the
+  // TOC block. Gain: ~15s on the total (overlap with norm+format+substitute).
   type DescResult = { ran: boolean; durationMs: number; costUsd?: number; notes: string[]; descriptions: Record<string, string> };
   const descPromise: Promise<DescResult> = (opts.enableGeminiDescriptions !== false)
     ? (async (): Promise<DescResult> => {
@@ -521,8 +520,8 @@ export async function substituteCatalogEngine(
             return { ran: false, durationMs: 0, notes: ['no sections'], descriptions: {} };
           }
           const descSections = [...sectionMap.entries()].map(([label, products]) => ({ label, products }));
-          // Tente Gemini en premier (gratuit + pas d'expiration auth).
-          // Fallback Claude Haiku si Gemini indispo / erreur API.
+          // Try Gemini first (free + no auth expiration).
+          // Fall back to Claude Haiku if Gemini is unavailable / API error.
           const { generateDescriptionsGemini } = await import('./gemini/descriptions');
           const gem = await generateDescriptionsGemini({
             sections: descSections,
@@ -536,15 +535,15 @@ export async function substituteCatalogEngine(
               descriptions: gem.descriptions,
             };
           }
-          // Si le quota Gemini est froid (cascade complete echouee a l'instant),
-          // le fallback Claude (spawn CLI lent, auth souvent expiree) plomberait
-          // le temps de gen pour une tache AUXILIAIRE → on skip, rapide. Claude
-          // reste utilise quand Gemini echoue pour une autre raison (quota OK).
+          // If the Gemini quota is cold (full cascade just failed), the Claude
+          // fallback (slow CLI spawn, auth often expired) would drag down the
+          // gen time for an AUXILIARY task → we skip, fast. Claude is still
+          // used when Gemini fails for another reason (quota OK).
           const { isQuotaCold } = await import('./gemini/circuitBreaker');
           if (isQuotaCold()) {
             return { ran: false, durationMs: 0, notes: ['gemini froid → skip fallback Claude (gen rapide)'], descriptions: {} };
           }
-          // Fallback Claude
+          // Claude fallback
           return generateDescriptions({
             sections: descSections,
             workDir: opts.workDir,
@@ -553,8 +552,8 @@ export async function substituteCatalogEngine(
             enabled: true,
           });
         } catch (err) {
-          // Etape AUXILIAIRE : un echec (import KO, fallback Claude qui throw) ne
-          // doit JAMAIS avorter la generation du PDF. On degrade en no-op.
+          // AUXILIARY step: a failure (broken import, Claude fallback that
+          // throws) must NEVER abort the PDF generation. We degrade to a no-op.
           return {
             ran: false,
             durationMs: 0,
@@ -565,7 +564,7 @@ export async function substituteCatalogEngine(
       })()
     : Promise.resolve({ ran: false, durationMs: 0, notes: [], descriptions: {} });
 
-  // ─── Phase 1.2 : Claude audit ────────────────────────────────────────────
+  // ─── Phase 1.2: Claude audit ─────────────────────────────────────────────
   let classifications = baseClassifications;
   let forcedDrops = new Set<number>();
   let claudeAuditMs = 0;
@@ -590,13 +589,13 @@ export async function substituteCatalogEngine(
     forcedDrops = applied.forcedDrops;
   }
 
-  // ─── Phase 2.5 : normalisation spec keys au style template ──────────────
-  // Trigger uniquement si mismatch detecte > 50% (xlsx en langue exotique ou
-  // naming custom client). Sinon skip silencieux. Mutation in-place sur les
-  // products → substitutor lira les nouvelles keys.
-  // On prend les keys des pages ALLOUEES en priorite (= celles qui vont
-  // recevoir les nouveaux produits) pour avoir un mapping pertinent au
-  // contexte. Fallback : toutes les pages produit si pas d'alloc.
+  // ─── Phase 2.5: normalize spec keys to the template style ───────────────
+  // Triggered only if a mismatch > 50% is detected (xlsx in an exotic
+  // language or custom client naming). Otherwise silent skip. In-place
+  // mutation on the products → substitutor will read the new keys.
+  // We take the keys of the ALLOCATED pages in priority (= those that will
+  // receive the new products) to get a mapping relevant to the context.
+  // Fallback: all product pages if no allocation.
   const allocatedSourcePages = new Set(allocation.allocations.map((a) => a.sourcePage));
   const templateSpecKeys: string[] = [];
   for (const c of classifications) {
@@ -621,9 +620,9 @@ export async function substituteCatalogEngine(
     await fs.writeFile(workProducts, JSON.stringify(opts.products, null, 2), 'utf8').catch(() => {});
   }
 
-  // ─── Phase 2.6 : value formatting (unites, suffixes) ────────────────────
-  // Apres normalisation des keys, on uniformise les VALEURS pour matcher le
-  // style template (ex "60" → "60 cm" si template utilise les unites).
+  // ─── Phase 2.6: value formatting (units, suffixes) ──────────────────────
+  // After normalizing the keys, we standardize the VALUES to match the
+  // template style (e.g. "60" → "60 cm" if the template uses units).
   const templateValuesByKey = new Map<string, string[]>();
   for (const c of classifications) {
     if (allocatedSourcePages.size > 0 && !allocatedSourcePages.has(c.pageNumber)) continue;
@@ -653,39 +652,39 @@ export async function substituteCatalogEngine(
     await fs.writeFile(workProducts, JSON.stringify(opts.products, null, 2), 'utf8').catch(() => {});
   }
 
-  // ─── Phase 3 : substitute ────────────────────────────────────────────────
+  // ─── Phase 3: substitute ─────────────────────────────────────────────────
   progress('substitute', 55, 'Substitution des produits…');
   const substituteStart = Date.now();
   resetMissingProductImages();
-  // Index : sourcePage → PageAllocation
+  // Index: sourcePage → PageAllocation
   const allocByPage = new Map(allocation.allocations.map((a) => [a.sourcePage, a]));
   const substitutedPages = new Map<number, Operation[]>();
-  // Intent-driven : on stocke les schemas + intents pour plan_v2 + boucle
+  // Intent-driven: we store the schemas + intents for plan_v2 + the loop
   const intentSchemasBySourceEarly = new Map<number, PageSchema>();
   const intentsBySource = new Map<number, { intents: import('./intent/intent').IntentOp[] }>();
-  const useIntentSubstitute = opts.enableIntentPlan !== false; // BC_test : intent par defaut
+  const useIntentSubstitute = opts.enableIntentPlan !== false; // BC_test: intent by default
   for (const a of allocation.allocations) {
     const cls = classifications.find((c) => c.pageNumber === a.sourcePage);
     if (!cls) continue;
-    // Decorations vectorielles : extraites des slots type='decoration' kind='vector'.
+    // Vector decorations: extracted from slots type='decoration' kind='vector'.
     const decorationVectors = cls.extracted.slots
       .filter(
         (s) => s.type === 'decoration' && (s as { kind?: string }).kind === 'vector',
       )
       .map((s) => s.bbox);
-    // Spans section_banner detectes strictement via isRealSectionBannerLabel
-    // (factorise depuis classify.ts ; voir docstring pour les criteres).
+    // section_banner spans detected strictly via isRealSectionBannerLabel
+    // (factored out from classify.ts; see docstring for the criteria).
     const sectionBannerSpans = cls.extracted.slots
       .filter((s) => s.type === 'section_banner')
       .map((s) => (s as { label: TextSpan }).label)
       .filter((lbl) => isRealSectionBannerLabel(lbl, profile));
 
-    // Spans ruban (vertical OU horizontal) : detecte heuristiquement.
-    //  - Vertical : bbox sur bord gauche/droit + texte vertical (h > w)
-    //  - Horizontal : bbox sur bord haut/bas + texte court (≤ 40 chars),
-    //                 taille >= 12pt, large bande (w > 30% page width).
-    //    Évite de matcher les page numbers (≤ 5 chars typique) et les titres
-    //    de section (zone centrale, pas en bordure).
+    // Ribbon spans (vertical OR horizontal): detected heuristically.
+    //  - Vertical: bbox on the left/right edge + vertical text (h > w)
+    //  - Horizontal: bbox on the top/bottom edge + short text (≤ 40 chars),
+    //                size >= 12pt, wide band (w > 30% page width).
+    //    Avoids matching page numbers (≤ 5 chars typically) and section
+    //    titles (central area, not on the border).
     const pageW = cls.extracted.page_size.width;
     const pageH = cls.extracted.page_size.height;
     const ribbonMargin = profile.ribbonMargin * 1.5;
@@ -701,14 +700,14 @@ export async function substituteCatalogEngine(
       if (txt.length < 3) return false;
       if (s.size < 8) return false;
 
-      // Détection vertical : texte rotated (h > w), sur bord gauche/droit
+      // Vertical detection: rotated text (h > w), on the left/right edge
       if (h > w) {
         const onLeft = s.bbox[2] < ribbonMargin;
         const onRight = s.bbox[0] > pageW - ribbonMargin;
         return onLeft || onRight;
       }
 
-      // Détection horizontal : bandeau haut/bas avec texte court large
+      // Horizontal detection: top/bottom band with short, wide text
       if (w > h && txt.length <= HORIZONTAL_RIBBON_MAX_CHARS
           && s.size >= HORIZONTAL_RIBBON_MIN_SIZE
           && w >= pageW * HORIZONTAL_RIBBON_MIN_W_RATIO) {
@@ -718,15 +717,15 @@ export async function substituteCatalogEngine(
       }
       return false;
     });
-    // Dédup ribbons sur même bandeau Y : sur Catalogue C / Catalogue B les 2 spans
-    // "POMPES D'ÉVACUATION" + "EAUX CLAIRES" sont consécutifs sur la même
-    // ligne Y, sans X-overlap. Substituer chaque par "SANITAIRE" donne
-    // "SANITAIRESANITAIRE" visible. Solution : grouper par row Y et ne
-    // garder que le 1er span de chaque row.
+    // Dedup ribbons on the same Y band: on Catalogue C / Catalogue B the 2 spans
+    // "POMPES D'ÉVACUATION" + "EAUX CLAIRES" are consecutive on the same
+    // Y line, with no X-overlap. Substituting each with "SANITAIRE" gives a
+    // visible "SANITAIRESANITAIRE". Solution: group by Y row and keep only
+    // the 1st span of each row.
     const dedupedRibbons = dedupRibbonsByRow(ribbonSpans, pageW, pageH);
     const ribbonSpansDedup = dedupedRibbons;
-    // Famille majoritaire des produits alloues sur cette page (souvent une
-    // seule valeur). Si absente : pas de substitution du ruban.
+    // Majority family of the products allocated on this page (often a single
+    // value). If absent: no ribbon substitution.
     const familyCounts = new Map<string, number>();
     for (const p of a.products) {
       const f = (p.family ?? '').trim();
@@ -737,11 +736,11 @@ export async function substituteCatalogEngine(
       newFamilyLabel = [...familyCounts.entries()].sort((x, y) => y[1] - x[1])[0][0];
     }
 
-    // Banner section : on prefere le label issu des PRODUITS alloues a celui
-    // detecte sur la page template. Garantit la coherence "banner = ce que
-    // raconte la page" quand l'allocator met des produits d'une section sur
-    // une page template qui en montrait une autre. Si aucun produit n'a de
-    // section, fallback sur a.sectionLabel (label template).
+    // Section banner: we prefer the label coming from the ALLOCATED PRODUCTS
+    // over the one detected on the template page. Guarantees the consistency
+    // "banner = what the page is about" when the allocator places products of
+    // one section on a template page that showed another. If no product has a
+    // section, fall back to a.sectionLabel (template label).
     const sectionCounts = new Map<string, number>();
     for (const p of a.products) {
       const s = (p.section ?? '').trim();
@@ -752,11 +751,11 @@ export async function substituteCatalogEngine(
       : undefined;
     const finalSectionLabel = productSectionLabel ?? a.sectionLabel;
 
-    // ─── Grille overflow : si N produits > N blocs template ──────────────
-    // Synthese des blocs supplementaires (translation verticale du bloc
-    // template ref) pour faire tenir les produits surnumeraires sur la
-    // meme page. Si pas de place dispo, retourne les blocs originaux et
-    // les produits surnumeraires sont drop comme avant.
+    // ─── Grid overflow: if N products > N template blocks ────────────────
+    // Synthesizes the extra blocks (vertical translation of the reference
+    // template block) to fit the surplus products on the same page. If no
+    // space is available, returns the original blocks and the surplus
+    // products are dropped as before.
     const { synthesizeOverflowBlocks } = await import('./engine/reflow/gridLayout');
     const gridRes = synthesizeOverflowBlocks({
       originalBlocks: cls.blocks,
@@ -771,7 +770,7 @@ export async function substituteCatalogEngine(
     }
 
     if (useIntentSubstitute) {
-      // Pipeline intent-driven : genere IntentOps → resolve → Operations
+      // Intent-driven pipeline: generates IntentOps → resolve → Operations
       const result = intentSubstitutePage({
         page: cls.extracted,
         blocks: effectiveBlocks,
@@ -793,7 +792,7 @@ export async function substituteCatalogEngine(
       intentSchemasBySourceEarly.set(a.sourcePage, result.schema);
       intentsBySource.set(a.sourcePage, { intents: result.intents });
     } else {
-      // Fallback : substitutor legacy (procedural)
+      // Fallback: legacy substitutor (procedural)
       const ops = substitutePage(effectiveBlocks, a.products, {
         pageWidth: cls.extracted.page_size.width,
         pageHeight: cls.extracted.page_size.height,
@@ -811,7 +810,7 @@ export async function substituteCatalogEngine(
     }
   }
   const substituteMs = Date.now() - substituteStart;
-  // Warning produits sans image (assets.zip incomplet)
+  // Warning for products without an image (incomplete assets.zip)
   const missingImgs = getMissingProductImages();
   if (missingImgs.length > 0) {
     const names = missingImgs.slice(0, 5).map((m) => `"${m.productName}"`).join(', ');
@@ -822,12 +821,12 @@ export async function substituteCatalogEngine(
     );
   }
 
-  // ─── Assemblage Plan (drop final + renum) ────────────────────────────────
+  // ─── Plan assembly (final drop + renum) ──────────────────────────────────
 
-  // Zone produit = entre la 1re et la derniere page kind='product' (ou
-  // 'intercalaire' qui annonce une section). Dans cette zone : tout ce
-  // qui n'est PAS substitue est drope (cahier technique, photos lifestyle
-  // intercalees, pages tech, etc.).
+  // Product zone = between the 1st and the last kind='product' page (or
+  // 'intercalaire' that announces a section). Within this zone: everything
+  // that is NOT substituted gets dropped (technical handbook, interleaved
+  // lifestyle photos, tech pages, etc.).
   const productZoneIdxs: number[] = [];
   for (let i = 0; i < classifications.length; i++) {
     const c = classifications[i];
@@ -839,12 +838,12 @@ export async function substituteCatalogEngine(
   const lastProductZoneIdx =
     productZoneIdxs[productZoneIdxs.length - 1] ?? -1;
 
-  // Dedup intro/outro : les catalogues ont souvent des pages d'outro qui
-  // dupliquent visuellement des pages d'intro (verso recto-verso imprimerie).
-  // Ex Catalogue A : page 1 (Catalogue B + RSE) et page 186 sont identiques. On hash
-  // les pages intro (sauf cover) puis on drop les pages non-intro qui
-  // matchent. La cover (page 0) est exclue car la 4eme de couverture lui
-  // ressemble legitimement.
+  // Intro/outro dedup: catalogs often have outro pages that visually
+  // duplicate intro pages (recto-verso printing back side).
+  // E.g. Catalogue A: page 1 (Catalogue B + CSR) and page 186 are identical. We hash
+  // the intro pages (except the cover) then drop the non-intro pages that
+  // match. The cover (page 0) is excluded because the back cover
+  // legitimately resembles it.
   const introHashes = new Set<string>();
   for (let i = 1; i < firstProductZoneIdx && i < classifications.length; i++) {
     introHashes.add(pageContentHash(classifications[i].extracted));
@@ -856,7 +855,7 @@ export async function substituteCatalogEngine(
     const forced = forcedDrops.has(cls.pageNumber);
     const inProductZone = i >= firstProductZoneIdx && i <= lastProductZoneIdx;
 
-    // KEEP : page produit substituee
+    // KEEP: substituted product page
     if (substitutedPages.has(cls.pageNumber)) {
       pagePlans.push({
         source_page: cls.pageNumber,
@@ -865,21 +864,21 @@ export async function substituteCatalogEngine(
       });
       continue;
     }
-    // DROP : tout dans la zone produit qui n'est pas substitue
-    // (cahier technique, photos lifestyle, sommaires, glossaires, etc.)
+    // DROP: everything in the product zone that is not substituted
+    // (technical handbook, lifestyle photos, contents pages, glossaries, etc.)
     if (inProductZone) continue;
-    // DROP : forced par Claude (hors zone produit)
+    // DROP: forced by Claude (outside the product zone)
     if (forced) continue;
-    // DROP : glossaire / cahier tech (peuvent etre hors zone aussi)
+    // DROP: glossary / tech handbook (may be outside the zone too)
     if (cls.kind === 'glossaire' || cls.kind === 'tech') continue;
-    // DROP : toc / intercalaire hors zone produit (rare)
+    // DROP: toc / intercalaire outside the product zone (rare)
     if (cls.kind === 'toc' || cls.kind === 'intercalaire') continue;
-    // DROP : page outro qui duplique une page d'intro (= verso recto-verso
-    // imprimerie). Evite d'avoir 2x la meme page Catalogue B/RSE.
+    // DROP: outro page that duplicates an intro page (= recto-verso printing
+    // back side). Avoids having the same Catalogue B/CSR page twice.
     if (i > lastProductZoneIdx && introHashes.has(pageContentHash(cls.extracted))) {
       continue;
     }
-    // KEEP : identite marque (cover, RSE, NF, mentions, 4eme de couv, etc.)
+    // KEEP: brand identity (cover, CSR, NF, legal notices, back cover, etc.)
     pagePlans.push({
       source_page: cls.pageNumber,
       page_number: null,
@@ -887,65 +886,64 @@ export async function substituteCatalogEngine(
     });
   }
 
-  // ─── Intercalaires de section (heuristique pure) ─────────────────────────
-  // Réanime UNE page intercalaire "pure" (= peu de spans, pas de fiche
-  // produit dedans) avant chaque groupe de pages produit d'une section.
-  // Substitue le grand titre par le label de section. Pas d'appel Claude
-  // (gardé simple pour le V2 procédural).
+  // ─── Section dividers (pure heuristic) ───────────────────────────────────
+  // Revives ONE "pure" divider page (= few spans, no product sheet inside)
+  // before each group of product pages of a section. Substitutes the large
+  // title with the section label. No Claude call (kept simple for the
+  // procedural V2).
   let intercalairesInserted = 0;
   {
-    // Pattern de ref produit pour detecter les pages "fiche produit deguisee"
-    // (= ressemblent a un intercalaire mais contiennent en realite des refs).
-    // Match :
-    //   - 6-8 chiffres standalone ("002236" Catalogue B/Catalogue C, "1234567",
+    // Product ref pattern to detect "disguised product sheet" pages
+    // (= they look like a divider but actually contain refs).
+    // Match:
+    //   - 6-8 standalone digits ("002236" Catalogue B/Catalogue C, "1234567",
     //     "12345678")
-    //   - prefixe optionnel 4-7 chiffres + espace (codes ERP grossistes : ex
-    //     "304740 1234567" du catalogue de reference Catalogue A, mais
-    //     compatible avec n'importe quel grossiste qui prefixe ses refs).
-    //   - exclu : annees (1900-2099) toutes seules — voir filtre suspect ci-bas.
+    //   - optional prefix of 4-7 digits + space (wholesaler ERP codes: e.g.
+    //     "304740 1234567" from the reference catalog Catalogue A, but
+    //     compatible with any wholesaler that prefixes its refs).
+    //   - excluded: standalone years (1900-2099) — see the suspect filter below.
     const REF_RE = /\b(?:\d{4,7}\s+)?\d{6,8}\b/;
     const YEAR_RE = /^(?:19|20)\d{2}$/;
-    // Dates concatenees JJMMAAAA (8 chiffres respectant 01-31/01-12/19xx-20xx).
-    // Filtre essentiel : sans cela "28062024" passe REF_RE et fausse la detection
-    // intercalaire (page legale "Loi du 28/06/2024" → suspect → identity a tort).
+    // Concatenated DDMMYYYY dates (8 digits respecting 01-31/01-12/19xx-20xx).
+    // Essential filter: without it "28062024" passes REF_RE and breaks the
+    // divider detection (legal page "Loi du 28/06/2024" → suspect → identity wrongly).
     const DATE_RE = /\b(?:0[1-9]|[12]\d|3[01])(?:0[1-9]|1[0-2])(?:19|20)\d{2}\b/;
     const SPEC_KW_RE = /\b(MATIERE|MATIÈRE|LONGUEUR|DIAMETRE|DIAMÈTRE|GARANTIE|DURÉE|SUPPORT|CONDITIONNEMENT|ACCESSOIRES|FOURNIS|FINITION|RACCORD|DEBIT|DÉBIT)\b/i;
     const lastPageIdx = classifications.length - 1;
-    // Zones "identité catalogue" : début (cover + intros marque + RSE +
-    // mission) et fin (notes + mentions légales + index + 4ème de couv).
-    // Conventionnellement les 5 premières et 5 dernières pages d'un
-    // catalogue commercial. Toute page intercalaire détectée dans ces
-    // zones est exclue : on ne réécrit JAMAIS une intro de marque avec
-    // un label de section. Sur Catalogue A : pages 0-4 déjà classées identity →
-    // no-op. Sur Catalogue C : pages 1-3 (Catalogue B / Catalogue F / NOS MARQUES /
-    // NOTRE VISIBILITÉ) préservées.
-    // Zones adaptatives selon taille du catalogue (cf computeIntercalaireGuardZones)
+    // "Catalog identity" zones: start (cover + brand intros + CSR +
+    // mission) and end (notes + legal notices + index + back cover).
+    // Conventionally the first 5 and last 5 pages of a commercial catalog.
+    // Any divider page detected in these zones is excluded: we NEVER
+    // rewrite a brand intro with a section label. On Catalogue A: pages 0-4
+    // already classified identity → no-op. On Catalogue C: pages 1-3 (Catalogue B /
+    // Catalogue F / NOS MARQUES / NOTRE VISIBILITÉ) preserved.
+    // Adaptive zones based on the catalog size (cf computeIntercalaireGuardZones)
     const { intro: INTRO_ZONE, outro: OUTRO_ZONE } =
       computeIntercalaireGuardZones(classifications.length);
-    // Plafond de spans texte pour un intercalaire "pur" : un VRAI intercalaire
-    // de section = grand titre + sous-titre + deco (~5-15 spans). Au-dela, c'est
-    // une page de CONTENU THEMATIQUE (page pedagogique "comment choisir une
-    // surpression", schema + legendes) qu'il ne faut PAS reanimer : substituer
-    // son bandeau par un autre label de section cree une incoherence
-    // contenu/titre (bug observe Catalogue C : page surpression a 44 spans, bandeau
-    // reecrit en "EAUX CLAIRES"). Mieux vaut PAS d'intercalaire qu'un faux.
+    // Text-span cap for a "pure" divider: a REAL section divider = large
+    // title + subtitle + decoration (~5-15 spans). Beyond that, it's a
+    // THEMATIC CONTENT page (educational page "how to choose a booster
+    // pump", schematic + captions) that must NOT be revived: substituting
+    // its band with another section label creates a content/title
+    // inconsistency (bug seen on Catalogue C: booster-pump page has 44 spans, band
+    // rewritten to "EAUX CLAIRES"). Better NO divider than a fake one.
     const MAX_INTERCALAIRE_TEXT_SPANS = 30;
     const isPureIntercalaire = (c: typeof classifications[0]): boolean => {
       if (c.kind !== 'intercalaire') return false;
       if (c.pageNumber < INTRO_ZONE) return false;
       if (c.pageNumber > lastPageIdx - OUTRO_ZONE) return false;
       const spans = c.extracted.raw_spans ?? [];
-      // Garde anti-page-thematique : trop de texte = page de contenu, pas un
-      // intercalaire reutilisable.
+      // Anti-thematic-page guard: too much text = a content page, not a
+      // reusable divider.
       const textSpans = spans.filter((s) => (s.text ?? '').trim().length > 1);
       if (textSpans.length > MAX_INTERCALAIRE_TEXT_SPANS) return false;
-      // Pages produit déguisées : on les filtre par specs/refs.
+      // Disguised product pages: we filter them by specs/refs.
       let suspect = 0;
       for (const s of spans) {
         const t = s.text.trim();
-        // Filtre annees pures (1900-2099) : pas une ref produit.
+        // Filter out pure years (1900-2099): not a product ref.
         if (YEAR_RE.test(t)) continue;
-        // Filtre dates JJMMAAAA : pas une ref produit.
+        // Filter out DDMMYYYY dates: not a product ref.
         if (DATE_RE.test(t)) continue;
         if (REF_RE.test(t) || SPEC_KW_RE.test(t)) suspect++;
         if (suspect >= 2) return false;
@@ -955,7 +953,7 @@ export async function substituteCatalogEngine(
     const candidates = classifications.filter(isPureIntercalaire);
 
     if (candidates.length > 0) {
-      // Liste les sections dans l'ordre d'apparition produit
+      // List the sections in product appearance order
       const allocBySource = new Map(
         allocation.allocations.map((a) => [a.sourcePage, a.sectionLabel]),
       );
@@ -967,21 +965,21 @@ export async function substituteCatalogEngine(
         seenSections.add(label);
         sectionInsertPoints.push({ label, idx: i });
       }
-      // Insertion de la FIN vers le DEBUT pour preserver les indices
+      // Insert from END to START to preserve the indices
       const sortedSections = [...sectionInsertPoints].sort((a, b) => b.idx - a.idx);
       const used = new Set<number>();
       for (const section of sortedSections) {
         const cand = candidates.find((c) => !used.has(c.pageNumber));
         if (!cand) break;
         used.add(cand.pageNumber);
-        // Identifie le grand titre : span avec font_size max dans la moitie
-        // haute, hors zone footer/ribbon.
+        // Identify the large title: span with max font_size in the upper
+        // half, outside the footer/ribbon zone.
         const pageH = cand.extracted.page_size.height;
         const pageW = cand.extracted.page_size.width;
         const candidates_spans = (cand.extracted.raw_spans ?? []).filter((s) => {
           if (s.text.trim().length < 3) return false;
-          if (s.bbox[3] > pageH * 0.7) return false; // bas = footer
-          if (s.bbox[0] > pageW * 0.85) return false; // bord droit = ribbon
+          if (s.bbox[3] > pageH * 0.7) return false; // bottom = footer
+          if (s.bbox[0] > pageW * 0.85) return false; // right edge = ribbon
           const w = s.bbox[2] - s.bbox[0];
           const h = s.bbox[3] - s.bbox[1];
           if (h > w * 1.5) return false; // vertical
@@ -989,14 +987,14 @@ export async function substituteCatalogEngine(
         });
         if (candidates_spans.length === 0) continue;
         const titleSpan = [...candidates_spans].sort((a, b) => b.size - a.size)[0];
-        // Casse template
+        // Template case
         const tplText = titleSpan.text.trim();
         let styled = section.label;
         const hasUpper = /[A-ZÀ-ſ]/.test(tplText);
         const hasLower = /[a-zà-ſ]/.test(tplText);
         if (hasUpper && !hasLower) styled = section.label.toUpperCase();
         else if (hasLower && !hasUpper) styled = section.label.toLowerCase();
-        // Erase grand titre + insert nouveau label
+        // Erase the large title + insert the new label
         const ops: Operation[] = [];
         ops.push({
           op: 'erase_rect',
@@ -1025,26 +1023,26 @@ export async function substituteCatalogEngine(
     }
   }
 
-  // ─── Sommaire reutilise du template ─────────────────────────────────────
-  // Strategie en 2 passes pour eviter le bug "page_number TOC pointe faux"
-  // si la renumeration finale diverge des indices anticipes :
-  //   PASS 1 (ici) : selectionne la page TOC candidate + insere un PagePlan
-  //                  placeholder (ops vides). Lance Claude descriptions.
-  //   PASS 2 (apres la renumerotation principale) : construit les VRAIES ops
-  //                  TOC avec les page_number reels post-renum, puis remplace
-  //                  les ops du placeholder.
-  // Si Pass 2 echoue (aucune entry), on retire le placeholder + re-renumerote.
+  // ─── Table of contents reused from the template ─────────────────────────
+  // 2-pass strategy to avoid the "TOC page_number points wrong" bug if the
+  // final renumbering diverges from the anticipated indices:
+  //   PASS 1 (here): selects the candidate TOC page + inserts a placeholder
+  //                  PagePlan (empty ops). Launches Claude descriptions.
+  //   PASS 2 (after the main renumbering): builds the REAL TOC ops with the
+  //                  actual post-renum page_numbers, then replaces the
+  //                  placeholder ops.
+  // If Pass 2 fails (no entry), we remove the placeholder + re-renumber.
   let tocSourcePage: number | null = null;
   let tocEntriesWritten = 0;
   let tocPlaceholder: PagePlan | null = null;
-  /** Tous les placeholders TOC (1 ou N si multi-pages sommaire). */
+  /** All the TOC placeholders (1 or N if the contents page spans multiple pages). */
   let tocPlaceholders: PagePlan[] = [];
   let tocDescriptions: Record<string, string> = {};
-  // On AWAIT TOUJOURS descPromise (meme si TOC off) : evite une floating promise
-  // non geree ET garantit que la cascade descriptions a fini AVANT le bloc audit
-  // — le court-circuit quota-froid en depend (descriptions epuise le quota →
-  // markQuotaCold → l'audit se court-circuite). Le resultat ne sert au TOC que
-  // si enableTemplateToc.
+  // We ALWAYS await descPromise (even if TOC is off): avoids an unhandled
+  // floating promise AND guarantees the descriptions cascade has finished
+  // BEFORE the audit block — the cold-quota short-circuit depends on it
+  // (descriptions exhaust the quota → markQuotaCold → the audit short-circuits).
+  // The result is only used by the TOC if enableTemplateToc.
   const descResult = await descPromise;
   claudeNotes.push(...descResult.notes);
   if (opts.enableTemplateToc !== false) {
@@ -1056,9 +1054,9 @@ export async function substituteCatalogEngine(
           + (descResult.costUsd !== undefined ? ` (cout ~$${descResult.costUsd.toFixed(3)})` : ''),
       );
     } else if (opts.enableGeminiDescriptions !== false) {
-      // Descriptions DEMANDÉES mais AUCUNE produite → on le signale explicitement.
-      // Sinon le sommaire perd ses chapeaux sans aucune explication (cause typique :
-      // quota Gemini journalier epuise / cascade froide → reessayer plus tard).
+      // Descriptions REQUESTED but NONE produced → we flag it explicitly.
+      // Otherwise the contents page loses its blurbs with no explanation (typical
+      // cause: daily Gemini quota exhausted / cold cascade → retry later).
       const why = descResult.notes.find(
         (n) => /froid|quota|429|erreur|error|absente|echec|indispo/i.test(n),
       );
@@ -1068,9 +1066,9 @@ export async function substituteCatalogEngine(
       );
     }
 
-    // PASS 1 : pick TOC source page via build "dry" avec page_number=0.
-    // Le but ici n'est pas d'avoir les bonnes ops mais de savoir si une
-    // page TOC valide existe + recuperer son source_page.
+    // PASS 1: pick the TOC source page via a "dry" build with page_number=0.
+    // The goal here is not to have the right ops but to know whether a valid
+    // TOC page exists + recover its source_page.
     progress('toc', 70, 'Adaptation du sommaire…');
     const dryPlans = pagePlans.map((pp) => ({ source_page: pp.source_page, page_number: 0 }));
     const tocDry = buildTocFromTemplate(
@@ -1083,9 +1081,9 @@ export async function substituteCatalogEngine(
       const allocSourcePages = new Set(allocation.allocations.map((a) => a.sourcePage));
       const firstProductIdx = pagePlans.findIndex((pp) => allocSourcePages.has(pp.source_page));
       const insertAt = firstProductIdx === -1 ? pagePlans.length : firstProductIdx;
-      // Multi-pages : on insère autant de placeholders que tocDry.pages.length.
-      // Tous pointent vers la meme sourcePage tpl (= meme deco). Les ops
-      // sont injectées en PASS 2 quand on connaît les pageNumbers reels.
+      // Multi-page: we insert as many placeholders as tocDry.pages.length.
+      // All point to the same tpl sourcePage (= same decoration). The ops
+      // are injected in PASS 2 once we know the real pageNumbers.
       const nPages = Math.max(1, tocDry.pages.length);
       tocPlaceholders = [];
       for (let k = 0; k < nPages; k++) {
@@ -1097,19 +1095,20 @@ export async function substituteCatalogEngine(
         tocPlaceholders.push(placeholder);
         pagePlans.splice(insertAt + k, 0, placeholder);
       }
-      // Backward compat : tocPlaceholder = la 1ère page sommaire.
+      // Backward compat: tocPlaceholder = the 1st contents page.
       tocPlaceholder = tocPlaceholders[0];
     }
   }
 
-  // ─── Tri des pages produit par hiérarchie ────────────────────────────
-  // Aligne l'ordre des pages produit avec le sommaire : family > subFamily >
-  // section, puis sourcePage en tiebreaker. Les pages NON-produit
-  // (cover, intros, sommaire, intercalaires) gardent leur position. On
-  // permute uniquement les pages substituées entre elles, à leurs slots.
+  // ─── Sort the product pages by hierarchy ─────────────────────────────
+  // Aligns the order of the product pages with the table of contents:
+  // family > subFamily > section, then sourcePage as tiebreaker. The
+  // NON-product pages (cover, intros, contents page, dividers) keep their
+  // position. We only permute the substituted pages among themselves, in
+  // their slots.
   {
     const allocBySource = new Map(allocation.allocations.map((a) => [a.sourcePage, a]));
-    // Ordres d'apparition (= ordre du sommaire) pour family et sfamille
+    // Appearance orders (= contents page order) for family and sub-family
     const familyOrder = new Map<string, number>();
     const subFamilyOrder = new Map<string, number>();
     let famIdx = 0;
@@ -1122,7 +1121,7 @@ export async function substituteCatalogEngine(
       if (!subFamilyOrder.has(key)) subFamilyOrder.set(key, subIdx++);
     }
 
-    // Collecte les indices + sortKey des pages produit
+    // Collect the indices + sortKey of the product pages
     interface ProductSlot { idx: number; plan: PagePlan; sortKey: [number, number, string, number] }
     const productSlots: ProductSlot[] = [];
     for (let i = 0; i < pagePlans.length; i++) {
@@ -1140,7 +1139,7 @@ export async function substituteCatalogEngine(
       });
     }
 
-    // Tri par sortKey
+    // Sort by sortKey
     const sortedPlans = [...productSlots].sort((a, b) => {
       if (a.sortKey[0] !== b.sortKey[0]) return a.sortKey[0] - b.sortKey[0];
       if (a.sortKey[1] !== b.sortKey[1]) return a.sortKey[1] - b.sortKey[1];
@@ -1149,31 +1148,32 @@ export async function substituteCatalogEngine(
       return a.sortKey[3] - b.sortKey[3];
     });
 
-    // Réassigne dans les slots d'origine
+    // Reassign into the original slots
     for (let k = 0; k < productSlots.length; k++) {
       pagePlans[productSlots[k].idx] = sortedPlans[k].plan;
     }
   }
 
-  // Renumerotation : position 1-based dans le PDF final. Le compteur `i + 1`
-  // avance pour CHAQUE page (même celles sans footer numéroté, ex couverture)
-  // → l'ordre reste juste pour numéroter les autres pages et le sommaire.
+  // Renumbering: 1-based position in the final PDF. The `i + 1` counter
+  // advances for EVERY page (even those without a numbered footer, e.g. the
+  // cover) → the order stays correct for numbering the other pages and the
+  // contents page.
   //
-  // On renumérote TOUTES les pages qui ont un slot page_number (footer numéroté
-  // d'origine), y compris les pages identité keep_raw. Le numéro est réécrit
-  // dans la COULEUR D'ORIGINE du template (lbl.color : blanc sur photo sombre,
-  // sombre sinon).
+  // We renumber ALL pages that have a page_number slot (original numbered
+  // footer), including keep_raw identity pages. The number is rewritten in
+  // the template's ORIGINAL COLOR (lbl.color: white on a dark photo, dark
+  // otherwise).
   //
-  // Le seul piège était le bloc blanc de l'erase :
-  //   - page 'operations' (sommaire, produit, page relocalisée, fond clair) :
-  //     l'ancien numéro template diffère souvent du nouveau (ex "104" → "6"),
-  //     il faut donc un erase blanc pour le couvrir. Invisible sur fond clair.
-  //   - page 'keep_raw' (identité, fond photo) : un erase blanc ferait un bloc
-  //     disgracieux (et masquait le chiffre blanc). On N'EFFACE PAS : on réécrit
-  //     le numéro par-dessus dans sa couleur d'origine. Ces pages ne sont pas
-  //     relocalisées (ancien numéro == nouveau) → l'écrasement est propre.
-  // Jamais de remove_text_in_bbox (corrompait les logos vectoriels NF lors du
-  // GenerateContent) ; insert_text + GenerateContent sont sûrs (logos intacts).
+  // The only pitfall was the white erase block:
+  //   - 'operations' page (contents, product, relocated page, light background):
+  //     the old template number often differs from the new one (e.g. "104" → "6"),
+  //     so a white erase is needed to cover it. Invisible on a light background.
+  //   - 'keep_raw' page (identity, photo background): a white erase would make an
+  //     unsightly block (and hid the white digit). We DON'T ERASE: we rewrite
+  //     the number on top in its original color. These pages are not
+  //     relocated (old number == new) → the overwrite is clean.
+  // Never remove_text_in_bbox (it corrupted the NF vector logos during
+  // GenerateContent); insert_text + GenerateContent are safe (logos intact).
   for (let i = 0; i < pagePlans.length; i++) {
     const newNum = i + 1;
     pagePlans[i].page_number = newNum;
@@ -1188,31 +1188,31 @@ export async function substituteCatalogEngine(
     for (const slot of pageNumberSlots) {
       const lbl = (slot as { label: TextSpan }).label;
       const numText = String(newNum);
-      // Comment couvrir l'ancien numéro template (≠ nouveau, ex "1" → "3") :
-      //   - numéro CLAIR (blanc) ⟹ footer sur fond SOMBRE (photo). Un erase
-      //     blanc ferait un bloc voyant → on SUPPRIME l'objet TEXT à la place.
-      //     Ces pages sombres n'ont pas les logos vectoriels type "norme NF",
-      //     donc le remove_text ne les corrompt pas.
-      //   - numéro FONCÉ ⟹ footer sur fond CLAIR. erase blanc invisible ; on
-      //     l'utilise (et on évite remove_text qui corromprait les logos NF
-      //     en transparency-group des pages claires).
+      // How to cover the old template number (≠ new, e.g. "1" → "3"):
+      //   - LIGHT number (white) ⟹ footer on a DARK background (photo). A
+      //     white erase would make a conspicuous block → we REMOVE the TEXT
+      //     object instead. These dark pages don't have the "NF standard"
+      //     vector logos, so remove_text doesn't corrupt them.
+      //   - DARK number ⟹ footer on a LIGHT background. White erase invisible;
+      //     we use it (and avoid remove_text which would corrupt the NF logos
+      //     in the transparency-group of light pages).
       const removeOldText = isLightColor(lbl.color);
-      // Page à fond photo (identité, intercalaire) : si on efface en blanc
-      // (numéro foncé sur photo CLAIRE), on échantillonne la teinte du fond
-      // (sample_bg) au lieu d'un blanc franc → pas de petit bloc blanc visible.
+      // Photo-background page (identity, divider): if we erase in white
+      // (dark number on a LIGHT photo), we sample the background tint
+      // (sample_bg) instead of a plain white → no small visible white block.
       const photoBg = cls.kind === 'identity' || cls.kind === 'intercalaire';
-      // Compensation baseline : render.cpp applyOpInsertTextInsert calcule
+      // Baseline compensation: render.cpp applyOpInsertTextInsert computes
       // `baseline_pdfium = pageH - y1 + INSERT_TEXT_BASELINE_OFFSET_PT`.
-      // Pour avoir la baseline EXACTE du span template, on compense ici.
+      // To get the template span's EXACT baseline, we compensate here.
       const insertY1 = lbl.bbox[3] + INSERT_TEXT_BASELINE_OFFSET_PT;
-      // X-start : meme que le span template (= aligne gauche apres le "/").
+      // X-start: same as the template span (= left-aligned after the "/").
       const xStart = lbl.bbox[0];
-      // Largeur estimee du nouveau num pour l'erase (coef chiffres
-      // tabulaires = TEXT_WIDTH_COEFS.digits ; ~0.6).
+      // Estimated width of the new number for the erase (tabular-digit coef
+      // = TEXT_WIDTH_COEFS.digits; ~0.6).
       const numWidth = numText.length * lbl.size * TEXT_WIDTH_COEFS.digits;
-      // Clamp anti-débord : certains footers (ex société Catalogue A, alignés à droite)
-      // ont leur slot numéro collé au bord droit → le chiffre sortait de la page
-      // (coupé). On décale à gauche juste assez pour qu'il reste entier.
+      // Anti-overflow clamp: some footers (e.g. company on Catalogue A, right-aligned)
+      // have their number slot stuck to the right edge → the digit ran off the
+      // page (cut off). We shift it left just enough to keep it whole.
       const pageW = cls.extracted.page_size?.width ?? 0;
       const RIGHT_MARGIN = 3;
       let insX = xStart;
@@ -1221,17 +1221,17 @@ export async function substituteCatalogEngine(
       }
       const insXEnd = insX + numWidth + 2;
       if (removeOldText) {
-        // Supprime physiquement l'ancien numéro (bbox serrée sur le seul
-        // chiffre ; le running header voisin n'est pas entièrement inscrit donc
-        // préservé), puis insert du nouveau dans la couleur d'origine, no_erase.
+        // Physically remove the old number (bbox tight on the single digit;
+        // the neighboring running header is not entirely enclosed so it's
+        // preserved), then insert the new one in the original color, no_erase.
         ops.push({
           op: 'remove_text_in_bbox',
           bbox: [lbl.bbox[0] - 0.5, lbl.bbox[1] - 0.5, lbl.bbox[2] + 0.5, lbl.bbox[3] + 0.5],
         });
       } else {
-        // Fond clair : erase (couvre l'ancien num, souvent plus large). Blanc
-        // sur page produit/sommaire (fond blanc) ; teinte échantillonnée sur
-        // page identité (fond photo clair, ex page NF) pour éviter un bloc.
+        // Light background: erase (covers the old number, often wider). White
+        // on a product/contents page (white background); sampled tint on an
+        // identity page (light photo background, e.g. NF page) to avoid a block.
         const eraseX0 = Math.min(xStart, insX);
         const eraseX1 = Math.min(Math.max(lbl.bbox[2], insXEnd) + 1, pageW > 0 ? pageW : Infinity);
         ops.push({
@@ -1247,34 +1247,34 @@ export async function substituteCatalogEngine(
         font: lbl.font,
         size: lbl.size,
         color: lbl.color,
-        // no_erase : on a déjà géré la couverture de l'ancien num (remove_text
-        // sur photo, erase blanc sur fond clair) ; on coupe l'auto-erase blanc
-        // interne de insert_text (render.cpp) qui reposerait un bloc.
+        // no_erase: we already handled covering the old number (remove_text
+        // on photo, white erase on light background); we disable insert_text's
+        // internal white auto-erase (render.cpp) which would re-add a block.
         no_erase: true,
       });
     }
-    // On bascule en mode 'operations' dès qu'on a ajouté un insert (le numéro
-    // doit être (ré)écrit). insert_text + GenerateContent ne corrompent pas les
-    // logos (seul remove_text_in_bbox le faisait).
+    // We switch to 'operations' mode as soon as we've added an insert (the
+    // number must be (re)written). insert_text + GenerateContent do not
+    // corrupt the logos (only remove_text_in_bbox did).
     if (ops.length > opsBefore) {
       plan.render = { mode: 'operations', operations: ops };
     }
   }
 
-  // PASS 2 TOC : maintenant que les page_number sont fixes, on (re)construit
-  // les ops du sommaire avec les VRAIS numeros et on remplace les ops du
-  // placeholder inséré en PASS 1. Si le build retombe vide, on retire la
-  // page placeholder + on re-renumerote.
+  // PASS 2 TOC: now that the page_numbers are fixed, we (re)build the
+  // contents-page ops with the REAL numbers and replace the ops of the
+  // placeholder inserted in PASS 1. If the build comes back empty, we remove
+  // the placeholder page + re-renumber.
   if (tocPlaceholder) {
     const placeholderSet = new Set(tocPlaceholders);
     const realPagePlans = pagePlans
       .filter((pp) => !placeholderSet.has(pp))
       .map((pp) => ({ source_page: pp.source_page, page_number: pp.page_number ?? 0 }));
-    // Calcul du cahier technique : produits avec schema_path ET dans
-    // allocations (= effectivement substitues). Sert a pre-allouer l'entry
-    // "Cahier technique" dans le sommaire avec son numero de page final.
-    // Normalisation tolerante pour eviter un tri trop strict : casse +
-    // whitespace + accents. Sinon "AQUASTAR  900" rate "AQUASTAR 900".
+    // Technical-handbook computation: products with schema_path AND in
+    // allocations (= actually substituted). Used to pre-allocate the
+    // "Cahier technique" entry in the contents page with its final page
+    // number. Tolerant normalization to avoid a too-strict sort: case +
+    // whitespace + accents. Otherwise "AQUASTAR  900" misses "AQUASTAR 900".
     const normName = (s: string): string => s
       .normalize('NFKD')
       .replace(/\p{Diacritic}/gu, '')
@@ -1295,10 +1295,10 @@ export async function substituteCatalogEngine(
     }).length;
     const CAHIER_PER_PAGE = 6;
     const cahierPagesCount = Math.ceil(cahierProductCount / CAHIER_PER_PAGE);
-    // Le cahier sera insere AVANT la derniere page (4e de couv). Au moment du
-    // PASS 2 TOC, pagePlans.length = nb total de pages SANS le cahier. La 4e
-    // couv est a page_number = pagePlans.length. Le cahier prendra les pages
-    // pagePlans.length a pagePlans.length + cahierPagesCount - 1.
+    // The handbook will be inserted BEFORE the last page (back cover). At
+    // PASS 2 TOC time, pagePlans.length = total page count WITHOUT the
+    // handbook. The back cover is at page_number = pagePlans.length. The
+    // handbook will take pages pagePlans.length to pagePlans.length + cahierPagesCount - 1.
     const cahierFirstPageNumber = cahierPagesCount > 0 ? pagePlans.length : 0;
     const extraEntries = cahierPagesCount > 0
       ? [{ label: 'Cahier technique', pageNumber: cahierFirstPageNumber }]
@@ -1311,13 +1311,13 @@ export async function substituteCatalogEngine(
       extraEntries,
     );
     if (tocResult.sourcePage !== null && tocResult.entriesWritten > 0) {
-      // Multi-pages : il peut y avoir + ou - de pages que prévu en PASS 1
-      // (selon yStep recalculé avec vrais pageNumbers). On ajuste : si nb
-      // de pages différent du nb de placeholders, on en ajoute/retire.
+      // Multi-page: there may be more or fewer pages than expected in PASS 1
+      // (depending on yStep recomputed with the real pageNumbers). We adjust:
+      // if the page count differs from the placeholder count, we add/remove.
       const realPages = tocResult.pages;
-      // Synchronise le nombre de placeholders avec realPages.length
+      // Sync the number of placeholders with realPages.length
       while (tocPlaceholders.length < realPages.length) {
-        // Manque des placeholders → on en insère après le dernier
+        // Missing placeholders → we insert one after the last
         const lastIdx = pagePlans.indexOf(tocPlaceholders[tocPlaceholders.length - 1]);
         const insertIdx = lastIdx >= 0 ? lastIdx + 1 : pagePlans.length;
         const extra: PagePlan = {
@@ -1329,13 +1329,13 @@ export async function substituteCatalogEngine(
         tocPlaceholders.push(extra);
       }
       while (tocPlaceholders.length > realPages.length) {
-        // Trop de placeholders → on retire l'excès depuis la fin
+        // Too many placeholders → we remove the excess from the end
         const extra = tocPlaceholders.pop()!;
         const idx = pagePlans.indexOf(extra);
         if (idx >= 0) pagePlans.splice(idx, 1);
       }
-      // Affecte les ops à chaque placeholder. Pour chacun, MERGE avec les
-      // ops de renumérotation déjà présentes (page number bottom).
+      // Assign the ops to each placeholder. For each one, MERGE with the
+      // renumbering ops already present (bottom page number).
       for (let i = 0; i < tocPlaceholders.length; i++) {
         const ph = tocPlaceholders[i];
         const pageOps = realPages[i]?.ops ?? [];
@@ -1348,7 +1348,7 @@ export async function substituteCatalogEngine(
         `sommaire : ${tocPlaceholders.length} page(s) sommaire, ${tocResult.entriesWritten}/${tocResult.entriesErased} entries reecrites (template page ${tocResult.sourcePage})`,
       );
     } else {
-      // Echec rebuild : on retire TOUS les placeholders et on re-renumerote.
+      // Rebuild failure: we remove ALL placeholders and re-renumber.
       for (const ph of tocPlaceholders) {
         const idx = pagePlans.indexOf(ph);
         if (idx >= 0) pagePlans.splice(idx, 1);
@@ -1359,7 +1359,7 @@ export async function substituteCatalogEngine(
     }
   }
 
-  // Assemblage final
+  // Final assembly
   const plan: Plan = {
     version: '1',
     pages: pagePlans,
@@ -1388,16 +1388,16 @@ export async function substituteCatalogEngine(
     });
   }
 
-  // ─── IntentPlan (approche BC) ─────────────────────────────────────────────
-  // Si intent-driven substitute est active, on reutilise les schemas et intents
-  // deja construits pendant la phase substitute. Sinon on les construit ici.
+  // ─── IntentPlan (BC approach) ─────────────────────────────────────────────
+  // If intent-driven substitute is active, we reuse the schemas and intents
+  // already built during the substitute phase. Otherwise we build them here.
   const intentSchemasBySource = new Map<number, PageSchema>();
   if (useIntentSubstitute) {
-    // Schemas deja construits pendant la phase substitute intent-driven
+    // Schemas already built during the intent-driven substitute phase
     for (const [src, schema] of intentSchemasBySourceEarly) {
       intentSchemasBySource.set(src, schema);
     }
-    // Persiste plan_v2.json avec les intents reels
+    // Persist plan_v2.json with the real intents
     const intentPages = [...intentsBySource.entries()].map(([src, data]) => ({
       sourcePage: src,
       intents: data.intents,
@@ -1414,7 +1414,7 @@ export async function substituteCatalogEngine(
       `intent-driven : ${totalIntentsGenerated} intents generes, ${intentSchemasBySource.size} schemas (ops via substitutor)`,
     );
   } else if (opts.enableIntentPlan === true || opts.enableIntentLoop === true) {
-    // Fallback : construction des schemas depuis les classifications
+    // Fallback: build the schemas from the classifications
     const intentPlan = buildIntentPlanV1(allocation.allocations, classifications);
     for (const s of intentPlan.schemas) {
       if (!intentSchemasBySource.has(s.sourcePage)) intentSchemasBySource.set(s.sourcePage, s);
@@ -1428,7 +1428,7 @@ export async function substituteCatalogEngine(
     }
   }
 
-  // ─── Render C++ ──────────────────────────────────────────────────────────
+  // ─── C++ render ──────────────────────────────────────────────────────────
   progress('render', 75, 'Rendu du PDF…');
   const renderStart = Date.now();
   const renderRes = await runBinary({
@@ -1460,12 +1460,12 @@ export async function substituteCatalogEngine(
       notes: claudeNotes,
     });
   }
-  // Filtre les lignes informatives du binaire (pas des warnings).
-  // ATTENTION : la liste BENIGN_STDERR_PREFIXES est COUPLEE aux prints
-  // C++ de extract.cpp/render.cpp. Si tu changes un message C++, mets a
-  // jour ici aussi sinon le filtre laisse passer du bruit comme warning.
-  // Compatibilite : on accepte les nouvelles formes en ajoutant des entrees,
-  // pas en supprimant les anciennes.
+  // Filter out the binary's informational lines (not warnings).
+  // WARNING: the BENIGN_STDERR_PREFIXES list is COUPLED to the C++ prints
+  // of extract.cpp/render.cpp. If you change a C++ message, update it here
+  // too, otherwise the filter lets noise through as a warning.
+  // Compatibility: we accept the new forms by adding entries, not by
+  // removing the old ones.
   const BENIGN_STDERR_PREFIXES = [
     'Pages:',           // extract.cpp "Pages: N"
     'Extraction OK',    // extract.cpp "Extraction OK: N fichiers..."
@@ -1478,11 +1478,11 @@ export async function substituteCatalogEngine(
     warnings.push('render: ' + t);
   }
 
-  // ─── Boucle Claude → IntentOps → re-render (approche BC) ────────────────
-  // Apres le 1er render, on demande a Claude vision des corrections (IntentOps)
-  // sur un echantillon de pages substituees, on les resout en Operations et
-  // on re-render. Iteratif (max 2 par defaut), stop des qu'une passe ne
-  // produit plus d'intent.
+  // ─── Claude → IntentOps → re-render loop (BC approach) ──────────────────
+  // After the 1st render, we ask Claude vision for corrections (IntentOps)
+  // on a sample of substituted pages, resolve them into Operations and
+  // re-render. Iterative (max 2 by default), stops as soon as a pass produces
+  // no more intents.
   let intentLoopMs: number | undefined;
   let intentLoopCostUsd: number | undefined;
   let intentLoopIterations: number | undefined;
@@ -1522,16 +1522,16 @@ export async function substituteCatalogEngine(
     );
   }
 
-  // ─── Cahier technique : grille 2x3 de schemas avant derniere page ────────
-  // Pour chaque produit AVEC schema_path matche ET effectivement alloue
-  // dans le PDF (= present dans une page produit substituee), on ajoute son
-  // schema dans une grille 6/page inseree JUSTE AVANT la derniere page (4e
-  // de couv). Une entree est aussi ajoutee dans le sommaire.
+  // ─── Technical handbook: 2x3 grid of schematics before the last page ─────
+  // For each product WITH a matched schema_path AND actually allocated
+  // in the PDF (= present in a substituted product page), we add its
+  // schematic to a 6-per-page grid inserted JUST BEFORE the last page (back
+  // cover). An entry is also added to the contents page.
   try {
-    // Set des produits effectivement utilises dans le PDF final.
-    // Normalisation tolerante (NFKD + diacritics + ws + lowercase) pour
-    // eviter un tri trop strict cote cahier technique (cas "AQUASTAR  900"
-    // vs "AQUASTAR 900", accents/casse heterogenes XLSX vs allocations).
+    // Set of the products actually used in the final PDF.
+    // Tolerant normalization (NFKD + diacritics + ws + lowercase) to
+    // avoid a too-strict sort on the handbook side (case "AQUASTAR  900"
+    // vs "AQUASTAR 900", heterogeneous accents/case XLSX vs allocations).
     const normName = (s: string): string => s
       .normalize('NFKD')
       .replace(/\p{Diacritic}/gu, '')
@@ -1545,7 +1545,7 @@ export async function substituteCatalogEngine(
         if (n) allocatedNames.add(n);
       }
     }
-    // Numero de page (1-based) du sommaire dans le PDF final, depuis pagePlans
+    // Page number (1-based) of the contents page in the final PDF, from pagePlans
     let tocFinalPageNumber: number | undefined;
     if (tocSourcePage != null) {
       const tocPlan = pagePlans.find((pp) => pp.source_page === tocSourcePage);
@@ -1555,8 +1555,8 @@ export async function substituteCatalogEngine(
     }
     const cahierRes = await appendCahiersTechniques(opts.outPdfPath, opts.products, {
       allocatedProductNames: allocatedNames,
-      // Pas de tocFinalPageNumber : l'entry sommaire est ajoutee directement
-      // par buildTocFromTemplate via extraEntries (style natif du sommaire).
+      // No tocFinalPageNumber: the contents entry is added directly by
+      // buildTocFromTemplate via extraEntries (native contents-page style).
       insertBeforeLastPage: true,
     });
     if (cahierRes.pagesAdded > 0) {
@@ -1577,9 +1577,9 @@ export async function substituteCatalogEngine(
     warnings.push(`cahier technique : erreur globale (${msg}). Pipeline continue.`);
   }
 
-  // ─── Audit visuel final (Claude vision) ──────────────────────────────────
-  // Desactive par defaut (cf. enableVisualAudit dans EngineOrchestratorOptions).
-  // Pour reactiver : passer { enableVisualAudit: true } a l'appel.
+  // ─── Final visual audit (Claude vision) ──────────────────────────────────
+  // Disabled by default (cf. enableVisualAudit in EngineOrchestratorOptions).
+  // To reactivate: pass { enableVisualAudit: true } at the call site.
   if (opts.enableVisualAudit === true) {
     progress('audit', 85, 'Audit visuel par Claude…');
   }
@@ -1609,15 +1609,15 @@ export async function substituteCatalogEngine(
   }
   claudeNotes.push(...visual.notes);
 
-  // Issues d'audit Gemini (visuel + coherence) collectees de facon structuree
-  // pour l'UI "pages a verifier" (garde-fou de relecture humaine).
+  // Gemini audit issues (visual + coherence) collected in a structured way
+  // for the "pages to review" UI (human proofreading safeguard).
   const geminiAuditIssues: GeminiAuditIssue[] = [];
 
-  // ─── Audit Gemini Vision (alternative + cumulable Claude) ───────────────
-  // Gratuit free tier, pas d'expiration auth. Detecte les bugs visuels
-  // page-par-page (overflow, overlap, cropped, mismatch).
-  // Default true : Gemini est gratuit, fallback gracieux si pas de cle.
-  // Set explicitement enableGeminiAudit: false pour desactiver.
+  // ─── Gemini Vision audit (alternative + stackable with Claude) ──────────
+  // Free tier, no auth expiration. Detects per-page visual bugs
+  // (overflow, overlap, cropped, mismatch).
+  // Default true: Gemini is free, graceful fallback if no key.
+  // Explicitly set enableGeminiAudit: false to disable.
   if (opts.enableGeminiAudit !== false) {
     try {
       progress('audit', 86, 'Audit visuel Gemini…');
@@ -1628,7 +1628,7 @@ export async function substituteCatalogEngine(
         allocations: allocation.allocations,
         workDir: opts.workDir,
         sampleSize: opts.visualAuditSampleSize,
-        projectDir: opts.projectDir, // active le cache audit
+        projectDir: opts.projectDir, // enables the audit cache
       });
       if (gem.ran) {
         const crit = gem.issues.filter((i) => i.severity === 'critical').length;
@@ -1637,7 +1637,7 @@ export async function substituteCatalogEngine(
           `audit Gemini : ${gem.issues.length} issue(s) (${crit} critical, ${minor} minor) sur ${gem.sampledPages.length} page(s) en ${gem.durationMs}ms`,
         );
         for (const issue of gem.issues) {
-          // Collecte structuree (pour l'UI "pages a verifier"), tous severites.
+          // Structured collection (for the "pages to review" UI), all severities.
           geminiAuditIssues.push({
             page: issue.finalPageNumber,
             severity: issue.severity,
@@ -1661,9 +1661,9 @@ export async function substituteCatalogEngine(
     }
   }
 
-  // ─── Audit Gemini de coherence globale (cross-page) ──────────────────────
-  // Detecte les incoherences inter-pages : typo / couleurs / hierarchie /
-  // alignements / pagination / sommaire mismatch. Un seul appel batch Pro Vision.
+  // ─── Gemini global coherence audit (cross-page) ──────────────────────────
+  // Detects inter-page inconsistencies: typo / colors / hierarchy /
+  // alignments / pagination / contents-page mismatch. A single Pro Vision batch call.
   if (opts.enableGeminiCoherenceAudit === true) {
     try {
       progress('audit', 88, 'Audit coherence Gemini…');
@@ -1704,28 +1704,28 @@ export async function substituteCatalogEngine(
 
   progress('finalize', 97, 'Finalisation…');
 
-  // Stats Gemini de CETTE generation (delta depuis le mark initial).
-  // Si Gemini a ete utilise : warning recap avec calls / cache hits / erreurs.
+  // Gemini stats for THIS generation (delta since the initial mark).
+  // If Gemini was used: recap warning with calls / cache hits / errors.
   const geminiDelta = statsSince(geminiStatsMark);
   if (geminiDelta.totalCalls > 0) {
     warnings.push(formatAggregate(geminiDelta));
   }
-  // Notif QUOTA : si l'API a tape son rate limit (429) et/ou bascule sur le
-  // fallback (CLI Pro abonnement / Claude), on emet un warning DEDIE que l'UI
-  // detecte (prefixe "Quota Gemini") pour afficher une notif claire. Le rendu
-  // n'est PAS impacte (le fallback a pris le relais).
+  // QUOTA notification: if the API hit its rate limit (429) and/or switched to
+  // the fallback (Pro subscription CLI / Claude), we emit a DEDICATED warning
+  // that the UI detects (prefix "Quota Gemini") to show a clear notification.
+  // The rendering is NOT affected (the fallback took over).
   const calls429 = geminiDelta.errorBreakdown[429] ?? 0;
   if (calls429 > 0 || geminiDelta.fallbacksUsed > 0) {
-    // Le CLI Gemini est abandonne : le relais est desormais la CASCADE de
-    // modeles API (3.1-flash-lite → flash → … → Gemma), puis Claude en dernier.
+    // The Gemini CLI is abandoned: the relay is now the CASCADE of API
+    // models (3.1-flash-lite → flash → … → Gemma), then Claude as the last resort.
     const modelsUsed = Object.keys(geminiDelta.byModel).join(', ') || 'cascade';
     warnings.push(
       `Quota Gemini atteint (${calls429}× 429, ${geminiDelta.fallbacksUsed} bascule(s) de modele) — `
         + `relais automatique via la cascade (${modelsUsed}). Rendu non impacte.`,
     );
   }
-  // Si des circuits Gemini se sont ouverts pendant ce run : avertir.
-  // Le breaker se reset auto apres 5min, donc c'est purement informatif.
+  // If any Gemini circuits opened during this run: warn.
+  // The breaker auto-resets after 5min, so this is purely informational.
   const { getCircuitState } = await import('./gemini/circuitBreaker');
   const cbState = getCircuitState();
   const openCircuits = Object.entries(cbState).filter(([, v]) => v.open);
@@ -1734,8 +1734,8 @@ export async function substituteCatalogEngine(
     warnings.push(`Gemini circuits ouverts (quota epuise, retest auto 5min) : ${list}`);
   }
 
-  // Quick win audit : promouvoir auth fail Claude des claudeNotes vers
-  // warnings utilisateur. Une seule occurrence (dedup).
+  // Quick win audit: promote Claude auth failures from claudeNotes to
+  // user warnings. A single occurrence (dedup).
   if (detectClaudeAuthFailure(claudeNotes)) {
     warnings.push(
       'Claude API auth expirée — relance `claude login` pour reactiver. '
@@ -1810,15 +1810,15 @@ export async function substituteCatalogEngine(
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Hash du contenu textuel d'une page (concat 20 spans non-vides triés par
- *  position top-down/left-right). Sert a detecter les duplications visuelles
- *  (ex recto-verso imprimerie). Trier par bbox rend le hash deterministe
- *  meme si l'ordre de traversee PDFium varie selon les FORM XObjects. */
+/** Hash of a page's text content (concat of 20 non-empty spans sorted by
+ *  top-down/left-right position). Used to detect visual duplications
+ *  (e.g. recto-verso printing). Sorting by bbox makes the hash deterministic
+ *  even if the PDFium traversal order varies across FORM XObjects. */
 export function pageContentHash(page: ExtractedPage): string {
   const spans = (page.raw_spans ?? []).filter((s) => s.text.trim().length > 0);
   spans.sort((a, b) => {
-    // y0 (top) puis x0 (left) ; tolerance 0.5pt sur y pour eviter shuffle
-    // entre spans alignes a la baseline mais legerement decales.
+    // y0 (top) then x0 (left); 0.5pt tolerance on y to avoid shuffling
+    // between spans aligned on the baseline but slightly offset.
     if (Math.abs(a.bbox[1] - b.bbox[1]) > 0.5) return a.bbox[1] - b.bbox[1];
     return a.bbox[0] - b.bbox[0];
   });
@@ -1829,16 +1829,16 @@ export function pageContentHash(page: ExtractedPage): string {
 }
 
 /**
- * Dedup ribbons par row Y (horizontal) ou col X (vertical) avec garde-fou
- * anti-UNION-geant.
+ * Dedup ribbons by Y row (horizontal) or X column (vertical) with an
+ * anti-GIANT-UNION safeguard.
  *
- * Sur Catalogue C / Catalogue B, les 2 spans "POMPES D'ÉVACUATION" + "EAUX CLAIRES"
- * sont consecutifs sur la meme ligne Y, sans X-overlap. On les merge en 1
- * bbox UNION pour erase complet du texte template.
+ * On Catalogue C / Catalogue B, the 2 spans "POMPES D'ÉVACUATION" + "EAUX CLAIRES"
+ * are consecutive on the same Y line, with no X-overlap. We merge them into 1
+ * UNION bbox to fully erase the template text.
  *
- * Garde-fou (faille review) : on rejette le merge si l'union depasse 70%
- * de la dimension page (W pour horiz, H pour vert) — sinon 2 ribbons
- * distincts a gauche+droite se mergeaient en rectangle plein-page.
+ * Safeguard (review flaw): we reject the merge if the union exceeds 70%
+ * of the page dimension (W for horiz, H for vert) — otherwise 2 distinct
+ * ribbons on the left+right would merge into a full-page rectangle.
  */
 export function dedupRibbonsByRow<T extends { bbox: [number, number, number, number] }>(
   ribbons: T[],
@@ -1883,8 +1883,8 @@ export function dedupRibbonsByRow<T extends { bbox: [number, number, number, num
   return deduped;
 }
 
-/** Detecte si les claudeNotes contiennent une indication d'auth expiree.
- *  Promu en warning utilisateur (faille audit : note moins visible). */
+/** Detects whether the claudeNotes contain a sign of expired auth.
+ *  Promoted to a user warning (audit flaw: a note is less visible). */
 export function detectClaudeAuthFailure(claudeNotes: string[]): boolean {
   return claudeNotes.some((n) =>
     /auth\s+expir|claude\s+login|401|authentication_error|Invalid\s+authentication/i.test(n),
@@ -1892,28 +1892,28 @@ export function detectClaudeAuthFailure(claudeNotes: string[]): boolean {
 }
 
 /**
- * Calcule les zones de protection intercalaire (debut/fin du catalogue)
- * de facon adaptative selon le nombre total de pages.
+ * Computes the divider guard zones (start/end of the catalog)
+ * adaptively based on the total page count.
  *
- * Faille review : seuil fixe 5 cassait sur mini-catalogues (8 pages =
- * 100% protege, plus rien d'exploitable) et sous-couvrait les mega-catalogues
- * (200 pages = 2.5% protege seulement).
+ * Review flaw: a fixed threshold of 5 broke on mini-catalogs (8 pages =
+ * 100% protected, nothing left usable) and under-covered mega-catalogs
+ * (200 pages = only 2.5% protected).
  *
- * Strategie :
- *   - mini (< 12 pages) : 1 + 1 (cover + 4eme de couv minimum)
- *   - standard (12-50 pages) : 5 + 5 (legacy)
- *   - mega (> 50 pages) : 5% des pages cappe a 10
+ * Strategy:
+ *   - mini (< 12 pages): 1 + 1 (cover + back cover minimum)
+ *   - standard (12-50 pages): 5 + 5 (legacy)
+ *   - mega (> 50 pages): 5% of the pages capped at 10
  *
- * Invariant : intro + outro < totalPages (au moins 1 page au milieu doit
- * rester exploitable pour la substitution).
+ * Invariant: intro + outro < totalPages (at least 1 page in the middle must
+ * stay usable for substitution).
  */
 export function computeIntercalaireGuardZones(totalPages: number): {
   intro: number;
   outro: number;
 } {
-  // Garde-fou pour catalogues degeneres (faille audit : invariant doc viole
-  // pour totalPages <= 2). En pratique l'orchestrator early-return en amont
-  // mais on protege ici aussi.
+  // Safeguard for degenerate catalogs (audit flaw: documented invariant
+  // violated for totalPages <= 2). In practice the orchestrator early-returns
+  // upstream but we protect here too.
   if (totalPages <= 2) return { intro: 0, outro: 0 };
   if (totalPages < 12) return { intro: 1, outro: 1 };
   if (totalPages <= 50) return { intro: 5, outro: 5 };
@@ -1927,9 +1927,9 @@ async function loadExtractedPages(
 ): Promise<ExtractedPage[]> {
   const entries = await fs.readdir(dir);
   const jsons = entries.filter((f) => f.startsWith('page-') && f.endsWith('.json')).sort();
-  // P0.5 : Promise.all parallelise les readFile (gain ~50% sur volumes
-  // monte NFS / Docker). On garde l'ordre via Promise.all (preserve l'ordre
-  // des promesses), pas via reduce séquentiel.
+  // P0.5: Promise.all parallelizes the readFile calls (~50% gain on NFS /
+  // Docker mounted volumes). We keep the order via Promise.all (which
+  // preserves the promise order), not via a sequential reduce.
   const raws = await Promise.all(
     jsons.map(async (fname) => ({
       fname,
@@ -1999,8 +1999,8 @@ function failResult(p: FailParams): EngineOrchestratorResult {
   };
 }
 
-/** Helper d'echec quand le pipeline crash AVANT extract (= aucune phase n'a
- *  ete mesuree). Renvoie un EngineOrchestratorResult avec stats a zero. */
+/** Failure helper for when the pipeline crashes BEFORE extract (= no phase
+ *  was measured). Returns an EngineOrchestratorResult with zeroed stats. */
 function failResultBootstrap(msg: string): EngineOrchestratorResult {
   return failResult({
     msg,
@@ -2017,12 +2017,12 @@ function failResultBootstrap(msg: string): EngineOrchestratorResult {
   });
 }
 
-// ─── BC : helpers IntentPlan ────────────────────────────────────────────────
+// ─── BC: IntentPlan helpers ─────────────────────────────────────────────────
 
-/** Construit un IntentPlan informationnel a partir des allocations + classes.
- *  Ne contient PAS d'IntentOps (le pipeline n'en genere pas encore) — juste
- *  les schemas de page, qui servent au resolver et a Claude pour cibler
- *  precisement des zones. */
+/** Builds an informational IntentPlan from the allocations + classifications.
+ *  Does NOT contain IntentOps (the pipeline does not generate any yet) — just
+ *  the page schemas, which the resolver and Claude use to target zones
+ *  precisely. */
 function buildIntentPlanV1(
   allocations: { sourcePage: number; sectionLabel?: string | null }[],
   classifications: { pageNumber: number; kind: string; extracted: ExtractedPage; blocks: ProductBlock[] }[],

@@ -1,21 +1,20 @@
 /**
- * inferProductSection — déduit la section d'un produit depuis son NOM
- * en comparant avec les sections candidates détectées dans le template
- * (banners section).
+ * inferProductSection — infers a product's section from its NAME by
+ * comparing it against the candidate sections detected in the template
+ * (section banners).
  *
- * Cas d'usage : XLSX simple sans colonne famille/section. Le pipeline a
- * besoin d'une section pour grouper les produits et alimenter l'allocator.
- * On infère depuis :
- *   1. Tokens du nom produit (matière, type, fonction)
- *   2. Tokens des sections candidates du template
+ * Use case: a simple XLSX with no family/section column. The pipeline needs
+ * a section to group products and feed the allocator. We infer from:
+ *   1. Product name tokens (material, type, function)
+ *   2. Tokens of the template's candidate sections
  *
- * Match : Jaccard tokens >= MIN_OVERLAP_RATIO. Retourne le candidat avec
- * le meilleur score, ou '' si rien ne matche.
+ * Match: token Jaccard >= MIN_OVERLAP_RATIO. Returns the candidate with the
+ * best score, or '' if nothing matches.
  */
 
 import { normalizeSection } from './inputs';
 
-/** Stop-words multi-langue à ignorer dans le matching (mots trop génériques). */
+/** Multi-language stop-words to ignore in matching (overly generic words). */
 const STOPWORDS = new Set([
   // FR
   'de', 'du', 'des', 'le', 'la', 'les', 'un', 'une', 'et', 'ou',
@@ -34,22 +33,22 @@ const STOPWORDS = new Set([
   // PT
   'do', 'da', 'dos', 'das', 'um', 'uma', 'os', 'as',
   'pelo', 'pela', 'sem', 'para', 'por', 'sobre',
-  // NL (néerlandais)
+  // NL (Dutch)
   'het', 'een', 'en', 'of', 'met', 'zonder', 'voor', 'naar',
   'van', 'tot', 'aan', 'bij', 'over', 'onder',
-  // SE (suédois)
+  // SE (Swedish)
   'den', 'det', 'ett', 'och', 'eller', 'med', 'utan', 'för', 'fran',
   // NO/DK
   'ei', 'og', 'eller', 'uten', 'pa', 'av',
-  // PL (polonais)
+  // PL (Polish)
   'oraz', 'lub', 'bez', 'dla', 'na', 'do', 'od', 'przez',
 ]);
-/** Score Jaccard minimum (intersection / min(set sizes)) pour valider. */
+/** Minimum Jaccard score (intersection / min(set sizes)) to validate. */
 const MIN_OVERLAP_RATIO = 0.25;
-/** Longueur min des tokens (évite "Le", "à", "x"). */
+/** Minimum token length (avoids "Le", "à", "x"). */
 const MIN_TOKEN_LEN = 3;
 
-/** Découpe + nettoie un texte en tokens normalisés sans stop-words. */
+/** Splits + cleans a text into normalized tokens without stop-words. */
 export function tokenize(text: string): string[] {
   if (!text) return [];
   return normalizeSection(text)
@@ -57,8 +56,8 @@ export function tokenize(text: string): string[] {
     .filter((t) => t.length >= MIN_TOKEN_LEN && !STOPWORDS.has(t));
 }
 
-/** Match score entre 2 sets de tokens : ratio intersection/min(set sizes).
- *  Accepte les matches préfixe (singulier/pluriel : "lavabo" ~ "lavabos"). */
+/** Match score between 2 token sets: ratio intersection/min(set sizes).
+ *  Accepts prefix matches (singular/plural: "lavabo" ~ "lavabos"). */
 function jaccardOverlap(a: string[], b: string[]): number {
   if (a.length === 0 || b.length === 0) return 0;
   const setA = Array.from(new Set(a));
@@ -66,7 +65,7 @@ function jaccardOverlap(a: string[], b: string[]): number {
   let inter = 0;
   for (const ta of setA) {
     for (const tb of setB) {
-      // Match exact OU préfixe (handle pluriel/singulier sans stemmer complet)
+      // Exact OR prefix match (handles plural/singular without a full stemmer)
       if (ta === tb || ta.startsWith(tb) || tb.startsWith(ta)) {
         inter++;
         break;
@@ -77,9 +76,9 @@ function jaccardOverlap(a: string[], b: string[]): number {
 }
 
 /**
- * Infère la section la plus probable d'un produit depuis son nom.
- * Retourne le label original de la candidate gagnante, ou '' si aucune
- * candidate ne dépasse le seuil de match.
+ * Infers the most probable section of a product from its name.
+ * Returns the original label of the winning candidate, or '' if no
+ * candidate exceeds the match threshold.
  */
 export function inferProductSection(productName: string, candidateSections: string[]): string {
   if (!productName || candidateSections.length === 0) return '';
@@ -101,12 +100,12 @@ export function inferProductSection(productName: string, candidateSections: stri
 }
 
 /**
- * Décide si l'inference est PERTINENTE pour un lot de produits :
- *   - Plus de 50 % des produits ont section vide
- *   - ET au moins 2 sections candidates dans le template
+ * Decides whether inference is RELEVANT for a batch of products:
+ *   - More than 50% of products have an empty section
+ *   - AND at least 2 candidate sections in the template
  *
- * Si vrai, le caller doit appeler inferProductSection() sur chaque produit
- * et muter sa section. Sinon, laisser tel quel.
+ * If true, the caller should call inferProductSection() on each product and
+ * mutate its section. Otherwise, leave as-is.
  */
 export function shouldInferSections(
   productsWithEmptySection: number,

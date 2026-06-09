@@ -1,12 +1,12 @@
 /**
- * Resolver IntentOp + PageSchema → Operation[] bas niveau.
+ * Resolver IntentOp + PageSchema → low-level Operation[].
  *
- * Le binaire C++ ne bouge pas : on prend les IntentOp lisibles et on
- * produit les memes ops qu'avant (erase_rect, insert_text, draw_image...).
+ * The C++ binary stays put: we take the readable IntentOps and produce the
+ * same ops as before (erase_rect, insert_text, draw_image...).
  *
- * La resolution des targets se fait via le PageSchema correspondant a la
- * page : chaque selecteur ("page_3.title", "page_3.specs_block.item_2.value")
- * est mappe sur une bbox + style.
+ * Target resolution happens via the PageSchema corresponding to the page:
+ * each selector ("page_3.title", "page_3.specs_block.item_2.value") is
+ * mapped onto a bbox + style.
  */
 import type { Operation, Bbox } from '../types';
 import type { PageSchema, ProductBlockZone, ResolvedTarget, TargetSelector, TextZone } from './schema';
@@ -15,22 +15,22 @@ import { padBbox } from '../utils/bbox';
 import { estimateTextWidth } from '../engine/reflow/fit';
 
 export interface ResolverResult {
-  /** Ops bas niveau pretes pour le binaire. */
+  /** Low-level ops ready for the binary. */
   operations: Operation[];
-  /** Intents non resolus (target invalide, type mismatch, etc.). */
+  /** Unresolved intents (invalid target, type mismatch, etc.). */
   unresolved: { intent: IntentOp; reason: string }[];
 }
 
-/** Resout un selecteur "page_N.[product_K.]zone[.sub[.item_i][.key|value]]"
- *  sur le schema. parts[0] = page_N (ignore). Si parts[1] = product_K, on
- *  drill dans products[K] et la zone est parts[2]+ ; sinon on tape les
- *  zones top-level (rétro-compat = product[0] OU zones page-niveau comme
+/** Resolves a selector "page_N.[product_K.]zone[.sub[.item_i][.key|value]]"
+ *  against the schema. parts[0] = page_N (ignored). If parts[1] = product_K,
+ *  we drill into products[K] and the zone is parts[2]+; otherwise we hit the
+ *  top-level zones (backward-compat = product[0] OR page-level zones like
  *  page_number/section_banner). */
 function resolveTarget(target: TargetSelector, schema: PageSchema): ResolvedTarget | null {
   const parts = target.split('.');
   if (parts.length < 2) return null;
 
-  // Cas explicite multi-produits : page_N.product_K.<zone>...
+  // Explicit multi-product case: page_N.product_K.<zone>...
   if (parts[1].startsWith('product_')) {
     const idx = parseInt(parts[1].slice('product_'.length), 10);
     const product = schema.zones.products?.[idx];
@@ -38,7 +38,7 @@ function resolveTarget(target: TargetSelector, schema: PageSchema): ResolvedTarg
     return resolveZoneInProduct(parts.slice(2), product);
   }
 
-  // Zones niveau page (jamais dans product) : page_number, section_banner.
+  // Page-level zones (never inside product): page_number, section_banner.
   if (parts[1] === 'page_number') {
     const t = schema.zones.page_number;
     return t ? { bbox: t.bbox, style: t.style, isText: true } : null;
@@ -48,14 +48,14 @@ function resolveTarget(target: TargetSelector, schema: PageSchema): ResolvedTarg
     return t ? { bbox: t.bbox, style: t.style, isText: true } : null;
   }
 
-  // Rétro-compat : page_N.<zone> = product_0.<zone>. On retombe sur la
-  // resolution dans le 1er produit (alimente le top-level via le mapper).
+  // Backward-compat: page_N.<zone> = product_0.<zone>. We fall back to
+  // resolution in the 1st product (feeds the top-level via the mapper).
   const first = schema.zones.products?.[0];
   if (first) return resolveZoneInProduct(parts.slice(1), first);
   return null;
 }
 
-/** Resout `<zone>[.sub[.item_i][.key|value]]` dans un ProductBlockZone. */
+/** Resolves `<zone>[.sub[.item_i][.key|value]]` inside a ProductBlockZone. */
 function resolveZoneInProduct(parts: string[], product: ProductBlockZone): ResolvedTarget | null {
   if (parts.length === 0) return null;
   const zone = parts[0];
@@ -124,14 +124,14 @@ export function resolveIntents(
             op: 'draw_image',
             bbox: resolved.bbox,
             image_path: intent.image_path,
-            // 'contain' = ratio preserve, 'cover' = remplir
+            // 'contain' = preserve ratio, 'cover' = fill
             fit: intent.fit ?? 'contain',
           },
         );
         break;
       }
       case 'update_spec': {
-        // Resout d'abord le bloc item, puis traite key + value separement.
+        // First resolve the item block, then handle key + value separately.
         const baseTarget = intent.target;
         if (intent.key !== undefined) {
           const keyTarget = `${baseTarget}.key`;
@@ -139,8 +139,8 @@ export function resolveIntents(
           if (keyResolved && keyResolved.isText && keyResolved.style) {
             operations.push(...emitReplaceText(keyResolved.bbox, keyResolved.style, intent.key));
           } else {
-            // Bug fix : ne plus dropper silencieusement si la key est demandee
-            // mais introuvable — remonter en unresolved pour debug.
+            // Bug fix: no longer silently drop when the key is requested but
+            // not found — surface it as unresolved for debugging.
             unresolved.push({ intent, reason: 'spec key cible introuvable' });
           }
         }
@@ -154,14 +154,14 @@ export function resolveIntents(
         break;
       }
       case 'set_color': {
-        // set_color sur une zone texte : on re-insere le texte avec la
-        // nouvelle couleur (preserve font/size).
+        // set_color on a text zone: we re-insert the text with the new
+        // color (preserves font/size).
         if (!resolved.isText || !resolved.style) {
           unresolved.push({ intent, reason: 'target pas une zone texte (set_color non supporte sur image)' });
           continue;
         }
-        // On a besoin du texte courant — pas dispo via ResolvedTarget.
-        // Lookup direct dans le schema.
+        // We need the current text — not available via ResolvedTarget.
+        // Direct lookup in the schema.
         const zone = lookupTextZone(intent.target, schema);
         if (!zone) {
           unresolved.push({ intent, reason: 'zone texte introuvable' });
@@ -181,15 +181,15 @@ export function resolveIntents(
   return { operations, unresolved };
 }
 
-/** Produit une paire erase_rect + insert_text pour remplacer un texte. */
+/** Produces an erase_rect + insert_text pair to replace a text. */
 function emitReplaceText(bbox: Bbox, style: { font: string; size: number; color: string }, text: string): Operation[] {
-  // Faille Catalogue C P6 "DIAMÈTREÈTRE" : si le nouveau text est plus large
-  // que la bbox template (ex template "Diamètre :" 70pt vs nouveau "DIAMÈTRE
-  // MAXIMUM DES PARTICULES :" 250pt), padBbox(bbox, 2) ne couvre que la zone
-  // template originale → le nouveau text deborde a droite par-dessus le
-  // template "Diamètre :" non efface dans la zone debordement.
-  // Solution : etendre l'erase a droite pour couvrir au moins la longueur
-  // du nouveau text.
+  // Catalogue C P6 "DIAMÈTREÈTRE" bug: if the new text is wider than the
+  // template bbox (e.g. template "Diamètre :" 70pt vs new "DIAMÈTRE MAXIMUM
+  // DES PARTICULES :" 250pt), padBbox(bbox, 2) only covers the original
+  // template zone → the new text overflows to the right over the unerased
+  // template "Diamètre :" in the overflow zone.
+  // Solution: extend the erase to the right to cover at least the length of
+  // the new text.
   const newWidth = estimateTextWidth(text, style.size);
   const bboxWidth = bbox[2] - bbox[0];
   const eraseBbox: Bbox =
@@ -209,8 +209,8 @@ function emitReplaceText(bbox: Bbox, style: { font: string; size: number; color:
   ];
 }
 
-/** Lookup direct du TextZone pour un selecteur. Sert quand on a besoin du
- *  texte courant (ex set_color qui doit re-emit avec le meme texte). */
+/** Direct lookup of the TextZone for a selector. Used when we need the
+ *  current text (e.g. set_color which must re-emit with the same text). */
 function lookupTextZone(target: TargetSelector, schema: PageSchema): TextZone | null {
   const parts = target.split('.');
   if (parts.length < 2) return null;

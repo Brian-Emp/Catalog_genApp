@@ -2,30 +2,29 @@ import { promises as fs } from 'fs';
 import { parse } from 'csv-parse/sync';
 import type { CsvData } from '../../types';
 
-// Limites overridables via env vars.
+// Limits overridable via env vars.
 const MAX_CSV_BYTES = Number(process.env.MAX_CSV_BYTES) || 100 * 1024 * 1024;
-// Cap independant des bytes : un CSV de short-rows peut produire des millions
-// de records et OOM Node alors que le total bytes est dans la limite.
+// Cap independent of bytes: a CSV of short rows can produce millions of
+// records and OOM Node even though the total bytes are within the limit.
 const MAX_CSV_ROWS = Number(process.env.MAX_CSV_ROWS) || 200_000;
 
-/** Délimiteurs candidats par ordre de prudence (premier = défaut si tout
- *  ex aequo, dernier = exotique). */
+/** Candidate delimiters in order of caution (first = default if everything
+ *  ties, last = exotic). */
 type CsvDelimiter = ',' | ';' | '\t' | '|';
 const DELIMITER_CANDIDATES: ReadonlyArray<CsvDelimiter> = [',', ';', '\t', '|'];
 
 /**
- * Détecte le séparateur le plus probable en analysant les N premières lignes.
+ * Detects the most likely separator by analyzing the first N lines.
  *
- * Strategie :
- *   1. Pour chaque candidat, compte les occurrences PAR LIGNE.
- *   2. Calcule moyenne + variance.
- *   3. Score = moyenne / (1 + variance) → favorise un sep qui apparait
- *      souvent ET un nombre CONSTANT de fois par ligne (= structure
- *      tabulaire propre).
+ * Strategy:
+ *   1. For each candidate, count the occurrences PER LINE.
+ *   2. Compute mean + variance.
+ *   3. Score = mean / (1 + variance) → favors a sep that appears often AND a
+ *      CONSTANT number of times per line (= clean tabular structure).
  *
- *  Plus robuste que compter la 1ere ligne seule : si la 1ere ligne (headers)
- *  contient un caractere ambigu (ex virgule dans "Nom, Prénom" comme header
- *  d'une seule colonne), les lignes suivantes desambiguisent.
+ *  More robust than counting the first line alone: if the first line (headers)
+ *  contains an ambiguous character (e.g. a comma in "Nom, Prénom" as a
+ *  single-column header), the following lines disambiguate.
  */
 export function detectDelimiter(sample: string): CsvDelimiter {
   const lines = sample
@@ -48,7 +47,7 @@ export function detectDelimiter(sample: string): CsvDelimiter {
     const avg = sum / counts.length;
     const variance =
       counts.reduce((s, c) => s + (c - avg) * (c - avg), 0) / counts.length;
-    // Score : moyenne (importance) / (1 + variance) (penalite instabilite)
+    // Score: mean (importance) / (1 + variance) (instability penalty)
     const score = avg / (1 + variance);
     if (score > bestScore) {
       bestScore = score;
@@ -60,29 +59,29 @@ export function detectDelimiter(sample: string): CsvDelimiter {
 }
 
 /**
- * Détecte l'encodage probable du buffer CSV.
+ * Detects the probable encoding of the CSV buffer.
  *
- * Strategie :
- *   1. BOM UTF-16 LE (FF FE) → utf-16le (exports Mac Excel)
- *   2. BOM UTF-8 (EF BB BF) → utf-8
- *   3. Decode strict en utf-8 sur les 64 premiers Ko : si valide → utf-8
- *   4. Sinon → latin1 (le surensemble safe pour les CSV europeens
- *      exportes depuis Excel Windows en CP1252, qui est binairement
- *      compatible avec latin1 pour la plage 0x80-0xFF latin)
+ * Strategy:
+ *   1. UTF-16 LE BOM (FF FE) → utf-16le (Mac Excel exports)
+ *   2. UTF-8 BOM (EF BB BF) → utf-8
+ *   3. Strict utf-8 decode over the first 64 KB: if valid → utf-8
+ *   4. Otherwise → latin1 (the safe superset for European CSVs exported from
+ *      Excel Windows in CP1252, which is binary-compatible with latin1 for the
+ *      0x80-0xFF latin range)
  *
- *  Couvre les exports XLSX → CSV de Excel/LibreOffice qui produisent
- *  souvent du latin1/CP1252 par defaut sur Windows, ou UTF-16 LE sur Mac.
- *  Note : UTF-16 BE (FE FF) reste non supporte (rare ; mappe sur latin1).
+ *  Covers the XLSX → CSV exports from Excel/LibreOffice that often produce
+ *  latin1/CP1252 by default on Windows, or UTF-16 LE on Mac.
+ *  Note: UTF-16 BE (FE FF) remains unsupported (rare; mapped to latin1).
  */
 export type CsvEncoding = 'utf-8' | 'latin1' | 'utf-16le';
 
 export function detectEncoding(buf: Buffer): CsvEncoding {
   if (buf.length === 0) return 'utf-8';
-  // BOM UTF-16 LE (Mac Excel exports)
+  // UTF-16 LE BOM (Mac Excel exports)
   if (buf[0] === 0xff && buf[1] === 0xfe) return 'utf-16le';
-  // BOM UTF-8
+  // UTF-8 BOM
   if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) return 'utf-8';
-  // Decode strict utf-8 sur sample : si echoue → latin1
+  // Strict utf-8 decode over the sample: if it fails → latin1
   const sample = buf.subarray(0, Math.min(buf.length, 64 * 1024));
   try {
     new TextDecoder('utf-8', { fatal: true }).decode(sample);
@@ -93,27 +92,27 @@ export function detectEncoding(buf: Buffer): CsvEncoding {
 }
 
 /**
- * Skip eventuelles lignes "titre" en debut de CSV (= lignes avec MOINS de
- * separateurs que les lignes suivantes). Cas typique : 1ere ligne =
- * "Catalogue 2026" (0 separator), 2e = headers tabulaires "Name,Ref,Color".
+ * Skips any "title" lines at the start of a CSV (= lines with FEWER
+ * separators than the following lines). Typical case: first line =
+ * "Catalogue 2026" (0 separators), second = tabular headers "Name,Ref,Color".
  *
- * Strategie symetrique a findHeaderRowIndex pour XLSX (tour 25). On scanne
- * les 5 premieres lignes et on cherche la 1ere qui a >= MIN_SEPARATORS
- * occurrences du delimiteur. Retourne le text sans les lignes avant.
+ * Strategy symmetric to findHeaderRowIndex for XLSX (round 25). We scan the
+ * first 5 lines and look for the first one that has >= MIN_SEPARATORS
+ * occurrences of the delimiter. Returns the text without the preceding lines.
  *
- * Si toutes les lignes ont peu de separateurs : on retourne le text intact
- * (fallback safe = comportement legacy).
+ * If all lines have few separators: we return the text intact (safe fallback =
+ * legacy behavior).
  */
 export function skipLeadingTitleRows(text: string, delimiter: string): string {
-  const MIN_SEPARATORS = 2; // >= 2 sep = >= 3 colonnes = header tabulaire
+  const MIN_SEPARATORS = 2; // >= 2 sep = >= 3 columns = tabular header
   const MAX_SCAN_LINES = 5;
   const lines = text.split(/\r?\n/);
   if (lines.length === 0) return text;
-  // Trouve la 1ere ligne avec assez de separateurs
+  // Find the first line with enough separators
   let headerIdx = 0;
   for (let i = 0; i < Math.min(lines.length, MAX_SCAN_LINES); i++) {
     const line = lines[i];
-    if (line.trim().length === 0) continue; // ligne vide → skip
+    if (line.trim().length === 0) continue; // empty line → skip
     let count = 0;
     for (const ch of line) if (ch === delimiter) count++;
     if (count >= MIN_SEPARATORS) {
@@ -131,16 +130,16 @@ export async function extractCsv(filePath: string): Promise<CsvData> {
     throw new Error(`CSV trop volumineux (${stat.size} octets, max ${MAX_CSV_BYTES})`);
   }
   const buf = await fs.readFile(filePath);
-  // Detection encodage : utf-8 si valide, sinon latin1 (CP1252-compatible
-  // pour les exports Excel europeens). Sans ca, "Mégère" devient "Mégère"
-  // ou pire.
+  // Encoding detection: utf-8 if valid, otherwise latin1 (CP1252-compatible
+  // for European Excel exports). Without this, "Mégère" becomes "Mégère"
+  // or worse.
   const encoding = detectEncoding(buf);
-  // Node Buffer.toString accepte 'utf16le' (alias 'ucs-2'), 'utf-8',
-  // 'latin1'. Le BOM UTF-16 LE est consomme automatiquement par le decoder.
+  // Node Buffer.toString accepts 'utf16le' (alias 'ucs-2'), 'utf-8',
+  // 'latin1'. The UTF-16 LE BOM is consumed automatically by the decoder.
   const rawText = buf.toString(encoding === 'utf-16le' ? 'utf16le' : encoding);
   const sample = rawText.slice(0, 2000);
   const delimiter = detectDelimiter(sample);
-  // Skip lignes-titre en debut (cohérence avec XLSX findHeaderRowIndex)
+  // Skip title lines at the start (consistent with XLSX findHeaderRowIndex)
   const text = skipLeadingTitleRows(rawText, delimiter);
   const records = parse(text, {
     columns: true,

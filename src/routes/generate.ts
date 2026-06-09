@@ -13,14 +13,14 @@ import { errorBody, failMessage, isProd } from '../middleware/httpError';
 import type { ExtractedFile, FileCategory, ProductInput } from '../types';
 import type { PlanProduct } from '../v2/types';
 
-/** Adapte un ProductInput (sortie productsAdapter) en PlanProduct attendu
- *  par le moteur engine V2. Les specs (key,value) deviennent (key, values[]),
- *  les variantes nominales sont mappees en variants couleur generique. */
+/** Adapts a ProductInput (productsAdapter output) into the PlanProduct
+ *  expected by the V2 engine. Specs (key,value) become (key, values[]), and
+ *  the named variants are mapped onto generic color variants. */
 function adaptProductInput(p: ProductInput): PlanProduct {
-  // Sanitize image_path : bloquer path traversal seulement. Les chemins
-  // absolus sont legitimes ici (productsAdapter assigne matched.absPath
-  // = fichier deja extracted dans workDir/assets/), interdire startsWith('/')
-  // tuait toutes les images.
+  // Sanitize image_path: block path traversal only. Absolute paths are
+  // legitimate here (productsAdapter assigns matched.absPath = a file already
+  // extracted into workDir/assets/); forbidding startsWith('/') would kill
+  // every image.
   let imgPath = p.image_path ?? null;
   if (imgPath && imgPath.includes('..')) {
     imgPath = null;
@@ -38,9 +38,9 @@ function adaptProductInput(p: ProductInput): PlanProduct {
       const splitted = splitMultiValue(s.value);
       return {
         key: s.key,
-        // Garde au moins 1 element pour preserver la key meme si toutes
-        // les values sont filtrees (non-informatives). Le pipeline aval
-        // gere les values[0] vide.
+        // Keep at least 1 element to preserve the key even if all values
+        // are filtered out (non-informative). The downstream pipeline
+        // handles an empty values[0].
         values: splitted.length > 0 ? splitted : [s.value],
       };
     }),
@@ -58,8 +58,8 @@ function adaptProductInput(p: ProductInput): PlanProduct {
 const MAX_FILE_SIZE = 200 * 1024 * 1024;
 const MAX_TOTAL_SIZE = 1024 * 1024 * 1024;
 
-/** Sanitize un nom de fichier client : retire path separators, control chars,
- *  parentheses non-imprimables. Garde lettres/chiffres/underscore/tiret/point/space. */
+/** Sanitizes a client file name: strips path separators, control chars,
+ *  non-printable parentheses. Keeps letters/digits/underscore/hyphen/dot/space. */
 function sanitizeFilename(name: string): string {
   const cleaned = name
     .replace(/[\x00-\x1f\x7f]/g, '')
@@ -93,9 +93,9 @@ async function cleanupFiles(paths: string[]): Promise<void> {
   await Promise.all(paths.map((p) => fs.rm(p, { force: true, recursive: true }).catch(() => {})));
 }
 
-/** Reject avant tout parsing si Content-Length depasse le plafond global.
- *  En backup : si Content-Length absent, on track les bytes recus en streaming
- *  et on coupe la connexion au-dela du seuil (defense en profondeur). */
+/** Reject before any parsing if Content-Length exceeds the global cap.
+ *  As a backup: if Content-Length is absent, we track received bytes while
+ *  streaming and cut the connection past the threshold (defense in depth). */
 function enforceTotalSize(req: Request, res: Response, next: NextFunction): void {
   const lenHeader = req.headers['content-length'];
   if (lenHeader !== undefined) {
@@ -111,11 +111,11 @@ function enforceTotalSize(req: Request, res: Response, next: NextFunction): void
       return;
     }
   }
-  // Header absent -> on enforce en stream (chunked transfer-encoding).
-  // P0.2 fix : on destroy AVANT que multer ne lise un seul byte. Sinon
-  // multer rattache son propre 'data' listener et peut ecrire la totalite
-  // sur disque avant qu'on ne coupe. On fait pause() immediat puis on
-  // verifie au resume().
+  // Header absent -> enforce while streaming (chunked transfer-encoding).
+  // P0.2 fix: we destroy BEFORE multer reads a single byte. Otherwise
+  // multer attaches its own 'data' listener and may write the whole thing
+  // to disk before we cut it off. We pause() immediately and then check
+  // on resume().
   let received = 0;
   let killed = false;
   req.on('data', (chunk: Buffer): void => {
@@ -123,8 +123,8 @@ function enforceTotalSize(req: Request, res: Response, next: NextFunction): void
     received += chunk.length;
     if (received > MAX_TOTAL_SIZE) {
       killed = true;
-      // pause + removeAll listeners pour empecher multer de consommer la
-      // suite du stream sur disque.
+      // pause + removeAll listeners to stop multer from consuming the rest
+      // of the stream to disk.
       req.pause();
       req.removeAllListeners('data');
       req.removeAllListeners('end');
@@ -142,10 +142,10 @@ function enforceTotalSize(req: Request, res: Response, next: NextFunction): void
 export const generateRouter: Router = Router();
 
 /** GET /api/estimate?products=N&descriptions=true
- *  Retourne une ETA en ms avec fourchette ±25%, calibree sur les meta.json
- *  des dernieres generations (modele lineaire base + perProduct). Honnete
- *  par construction : si moins de 3 echantillons → "default" + valeurs
- *  conservatrices, sinon "calibrated" + N samples.
+ *  Returns an ETA in ms with a ±25% range, calibrated on the meta.json of the
+ *  latest generations (linear model: base + perProduct). Honest by design: if
+ *  fewer than 3 samples → "default" + conservative values, otherwise
+ *  "calibrated" + N samples.
  */
 generateRouter.get('/estimate', async (req, res) => {
   try {
@@ -162,9 +162,9 @@ generateRouter.get('/estimate', async (req, res) => {
 });
 
 /** GET /api/gemini/health
- *  Verifie l'etat de Gemini : cle, quota, accessibilite. Retourne un statut
- *  permettant a l'UI d'afficher un badge "Gemini OK/KO". Appel minimal (1
- *  token) donc cout negligeable.
+ *  Checks Gemini's state: key, quota, accessibility. Returns a status that lets
+ *  the UI show a "Gemini OK/KO" badge. Minimal call (1 token), so the cost is
+ *  negligible.
  */
 generateRouter.get('/gemini/health', async (_req, res) => {
   try {
@@ -182,10 +182,10 @@ generateRouter.get('/gemini/health', async (_req, res) => {
 });
 
 /** GET /api/gemini/stats
- *  Stats d'usage Gemini cumulees (en-memory, reset au boot serveur).
- *  Utile pour debug / monitoring du cache hit ratio + erreurs.
+ *  Cumulative Gemini usage stats (in-memory, reset on server boot).
+ *  Useful for debugging / monitoring the cache hit ratio + errors.
  *
- *  Query optionnelle ?reset=1 → vide les stats avant de retourner.
+ *  Optional query ?reset=1 → clears the stats before returning.
  */
 generateRouter.get('/gemini/stats', async (req, res) => {
   try {
@@ -210,9 +210,9 @@ generateRouter.get('/gemini/stats', async (req, res) => {
 });
 
 /** GET /api/gemini/circuit
- *  Etat des circuits breakers Gemini (par module + model). Indique quels
- *  modules sont temporairement coupes apres 3 x 429 consecutifs. Auto-reset
- *  apres 5min ou via ?reset=1.
+ *  State of the Gemini circuit breakers (per module + model). Indicates which
+ *  modules are temporarily tripped after 3 consecutive 429s. Auto-resets after
+ *  5 min or via ?reset=1.
  */
 generateRouter.get('/gemini/circuit', async (req, res) => {
   try {
@@ -233,8 +233,8 @@ generateRouter.get('/gemini/circuit', async (req, res) => {
 });
 
 /** GET /api/gemini
- *  Endpoint umbrella : retourne health + stats + circuit state en un seul
- *  call. Utile pour UI dashboard pour eviter 3 round-trips.
+ *  Umbrella endpoint: returns health + stats + circuit state in a single
+ *  call. Handy for a dashboard UI to avoid 3 round-trips.
  */
 generateRouter.get('/gemini', async (_req, res) => {
   try {
@@ -261,13 +261,13 @@ generateRouter.get('/gemini', async (_req, res) => {
 });
 
 /** GET /api/gemini/smoke
- *  Smoke test rapide des modules Gemini sur des donnees synthetiques.
- *  Utile pour valider end-to-end que la cle est OK et que chaque module
- *  retourne quelque chose de coherent. Skipe les modules Vision (besoin
- *  d'un PDF rasterise) — focus JSON only.
+ *  Quick smoke test of the Gemini modules on synthetic data. Useful to
+ *  validate end-to-end that the key is OK and that each module returns
+ *  something coherent. Skips the Vision modules (they need a rasterized PDF) —
+ *  JSON only.
  *
- *  Modules teste : smartMapping, specNormalizer, imageMatcher, descriptions.
- *  Duree typique : 4-8s.
+ *  Modules tested: smartMapping, specNormalizer, imageMatcher, descriptions.
+ *  Typical duration: 4-8s.
  */
 generateRouter.get('/gemini/smoke', requireAuth, async (_req, res) => {
   try {
@@ -372,14 +372,14 @@ generateRouter.get('/gemini/smoke', requireAuth, async (_req, res) => {
 });
 
 /** POST /api/layout
- *  Mode LAYOUT GEN (parallele a /generate) : compose un catalogue from scratch
- *  via Gemini Pro (HTML/CSS → Chromium PDF), SANS template PDF. Inputs : data
- *  (xlsx/csv) + assets (zip). Query ?perPage=N (default 3).
+ *  LAYOUT GEN mode (parallel to /generate): composes a catalog from scratch
+ *  via Gemini Pro (HTML/CSS → Chromium PDF), WITHOUT a PDF template. Inputs:
+ *  data (xlsx/csv) + assets (zip). Query ?perPage=N (default 3).
  *
- *  ATTENTION : lent (Pro ~30-45s/page). Mode experimental opt-in.
+ *  WARNING: slow (Pro ~30-45s/page). Experimental opt-in mode.
  */
 generateRouter.post('/layout', requireAuth, enforceTotalSize, upload.any(), async (req, res) => {
-  res.setTimeout(20 * 60 * 1000); // Pro lent : large marge
+  res.setTimeout(20 * 60 * 1000); // Pro is slow: generous margin
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (!files.length) {
     res.status(400).json({ error: 'Aucun fichier fourni (data + assets attendus)' });
@@ -419,7 +419,7 @@ generateRouter.post('/layout', requireAuth, enforceTotalSize, upload.any(), asyn
     });
     await cleanupFiles(uploadedPaths);
     if (!result.ok) {
-      // notes = détail orchestrateur (chemins/erreurs internes) → masqué en prod.
+      // notes = orchestrator detail (internal paths/errors) → hidden in prod.
       res.status(500).json(errorBody('Echec layout gen', { debug: { notes: result.notes } }));
       return;
     }
@@ -439,9 +439,9 @@ generateRouter.post('/layout', requireAuth, enforceTotalSize, upload.any(), asyn
 });
 
 generateRouter.post('/generate', enforceTotalSize, upload.any(), async (req, res) => {
-  // R5 audit : timeout global cote serveur (30 min). Au-dela, Express
-  // coupera la connexion meme si un sub-process tourne encore. Evite qu'une
-  // generation runaway bloque indefiniment un client.
+  // R5 audit: global server-side timeout (30 min). Past that, Express will
+  // cut the connection even if a sub-process is still running. Prevents a
+  // runaway generation from blocking a client indefinitely.
   res.setTimeout(30 * 60 * 1000);
   const totalStartMs = Date.now();
 
@@ -451,15 +451,15 @@ generateRouter.post('/generate', enforceTotalSize, upload.any(), async (req, res
     return;
   }
   const uploadedPaths = files.map((f) => f.path);
-  // Stamp avec suffixe random : evite la collision de fs paths si 2 requetes
-  // arrivent dans la meme milliseconde (workDir / outPdf identiques sinon).
+  // Stamp with a random suffix: avoids fs-path collisions if 2 requests
+  // arrive in the same millisecond (identical workDir / outPdf otherwise).
   const stamp = `${Date.now()}_${randomBytes(3).toString('hex')}`;
-  // jobId pour le tracker de progression : passe en QUERY STRING par le
-  // client (POST /api/generate?jobId=xxx) pour qu'on puisse le lire AVANT
-  // que multer parse les fichiers. Si absent/invalide ou deja actif dans
-  // le tracker (collision rare UUID v4 mais possible), on suffixe pour
-  // garantir l'unicite. Le client poll son jobId d'origine : si on a du
-  // suffixer, sa barre ne marchera pas mais le pipeline tourne normalement.
+  // jobId for the progress tracker: passed as a QUERY STRING by the client
+  // (POST /api/generate?jobId=xxx) so we can read it BEFORE multer parses the
+  // files. If absent/invalid or already active in the tracker (a rare but
+  // possible UUID v4 collision), we add a suffix to guarantee uniqueness. The
+  // client polls its original jobId: if we had to add a suffix, its progress
+  // bar won't work but the pipeline runs normally.
   const rawJobId = typeof req.query?.jobId === 'string' ? req.query.jobId : '';
   let jobId = /^[a-zA-Z0-9_-]{1,64}$/.test(rawJobId) ? rawJobId : stamp;
   const existing = getProgress(jobId);
@@ -520,12 +520,12 @@ generateRouter.post('/generate', enforceTotalSize, upload.any(), async (req, res
   setProgress(jobId, 'parse', 5, 'Lecture de la base produits…');
   let built;
   try {
-    // V2 : pas de templateConfig (les patterns metier vivent dans le Skill).
-    // projectDir : expose .claude/skills a la CLI Claude (smart mapping).
+    // V2: no templateConfig (the business patterns live in the Skill).
+    // projectDir: exposes .claude/skills to the Claude CLI (smart mapping).
     built = await buildProductInputs(extracted, workDir, {
       projectDir: PROJECT_DIR,
-      // Smart mapping des colonnes via Gemini (fallback quand l'heuristique a des
-      // trous). ON par defaut ; ?enrich=0 pour mapping deterministe seul.
+      // Smart column mapping via Gemini (fallback when the heuristic has
+      // gaps). ON by default; ?enrich=0 for deterministic mapping only.
       enableSmartMapping: req.query?.enrich !== '0',
     });
   } catch (err) {
@@ -549,9 +549,9 @@ generateRouter.post('/generate', enforceTotalSize, upload.any(), async (req, res
   }
   const products = built.products;
 
-  // Validation amont supplementaire : produits sans nom, refs dupliquees,
-  // sections vides. On warning (pas error) car le pipeline gere mais
-  // l'utilisateur veut savoir avant rendu.
+  // Extra upfront validation: products without a name, duplicate refs, empty
+  // sections. We warn (not error) because the pipeline handles it but the
+  // user wants to know before rendering.
   const upfrontWarnings: string[] = [];
   const productsWithoutName = products.filter((p) => !p.name?.trim()).length;
   if (productsWithoutName > 0) {
@@ -583,24 +583,24 @@ generateRouter.post('/generate', enforceTotalSize, upload.any(), async (req, res
       workDir,
       outPdfPath: outPdf,
       projectDir: PROJECT_DIR,
-      // Branche BC_test : intent-driven substitute par defaut. Le pipeline
-      // genere des IntentOps depuis les product data → resolve → Operations.
-      // Override par query ?intent=0 pour revenir au substitutor legacy.
+      // BC_test branch: intent-driven substitute by default. The pipeline
+      // generates IntentOps from the product data → resolve → Operations.
+      // Override with query ?intent=0 to fall back to the legacy substitutor.
       enableIntentPlan: req.query?.intent !== '0',
-      // Boucle Claude → IntentOps → re-render : DESACTIVEE par defaut.
-      // Trop couteuse (~6min Claude Sonnet vision sur 2 passes) pour un
-      // gain visuel marginal. Activer par query ?intent_loop=1 si besoin.
+      // Claude → IntentOps → re-render loop: DISABLED by default. Too costly
+      // (~6 min of Claude Sonnet vision over 2 passes) for a marginal visual
+      // gain. Enable with query ?intent_loop=1 if needed.
       enableIntentLoop: req.query?.intent_loop === '1',
-      // Audit de coherence globale (CLI Pro Vision, cross-page). Opt-in via
-      // ?coherence=1 : garde-fou de relecture (typo/alignement/pagination/
-      // sommaire entre pages). ~45s en plus mais alimente "pages a verifier".
+      // Global coherence audit (CLI Pro Vision, cross-page). Opt-in via
+      // ?coherence=1: a proofreading safeguard (typo/alignment/pagination/
+      // table-of-contents across pages). ~45s extra but feeds "pages to check".
       enableGeminiCoherenceAudit: req.query?.coherence === '1',
-      // ── Taches LLM auxiliaires : ON par defaut (on GARDE descriptions, audit,
-      //    enrichissement specs). La lenteur passee venait du QUOTA mort (retries
-      //    90s + CLI Pro lent en fallback), PAS des features → corrige par le
-      //    fail-fast (client MAX_RETRY_DELAY_MS=8s + router sans CLI en 'speed') :
-      //    sur quota mort la tache se skippe vite au lieu de bloquer des minutes.
-      //    Opt-out ?audit=0 / ?descriptions=0 / ?enrich=0 pour une gen ultra-rapide.
+      // ── Auxiliary LLM tasks: ON by default (we KEEP descriptions, audit,
+      //    spec enrichment). The past slowness came from a dead QUOTA (90s
+      //    retries + slow Pro CLI as fallback), NOT the features → fixed by
+      //    fail-fast (client MAX_RETRY_DELAY_MS=8s + CLI-less router in 'speed'):
+      //    on a dead quota the task skips quickly instead of blocking for minutes.
+      //    Opt out with ?audit=0 / ?descriptions=0 / ?enrich=0 for an ultra-fast gen.
       enableGeminiAudit: req.query?.audit !== '0',
       enableGeminiDescriptions: req.query?.descriptions !== '0',
       enableSpecNormalization: req.query?.enrich !== '0',
@@ -616,9 +616,9 @@ generateRouter.post('/generate', enforceTotalSize, upload.any(), async (req, res
   }
   if (!result.ok) {
     await cleanupFiles([...uploadedPaths, workDir, outPdf]);
-    // Erreur utilisateur-friendly : on prend la premiere raison parmi
-    // les orchestratorErrors, mappee a un message clair. Le detail
-    // technique reste dans orchestratorErrors pour le debug.
+    // User-friendly error: we take the first reason among the
+    // orchestratorErrors and map it to a clear message. The technical detail
+    // stays in orchestratorErrors for debugging.
     const errMsg = result.errors[0] ?? '';
     let userError = 'Echec generation du catalogue.';
     if (/PDF vide|extracteur plante|extract failed/i.test(errMsg)) {
@@ -636,7 +636,7 @@ generateRouter.post('/generate', enforceTotalSize, upload.any(), async (req, res
       rejectedFiles,
       adapterWarnings: built.warnings,
       stats: result.stats,
-      // Détail technique (chemins internes, erreurs orchestrateur) masqué en prod.
+      // Technical detail (internal paths, orchestrator errors) hidden in prod.
       ...(isProd()
         ? {}
         : {
@@ -655,9 +655,9 @@ generateRouter.post('/generate', enforceTotalSize, upload.any(), async (req, res
     stamp,
     productCount: products.length,
     matchedImageCount: built.matchedImageCount,
-    /** Duree totale endpoint mesuree cote serveur (multer + parsing + engine
-     *  + render + write fichiers). Sert a l'estimateur (plus fiable que la
-     *  somme des phases stats qui sous-estime systematiquement). */
+    /** Total endpoint duration measured server-side (multer + parsing + engine
+     *  + render + file writes). Feeds the estimator (more reliable than the
+     *  sum of the phase stats, which systematically underestimates). */
     totalDurationMs,
     stats: result.stats,
     warnings: result.warnings,
@@ -681,14 +681,14 @@ generateRouter.post('/generate', enforceTotalSize, upload.any(), async (req, res
     // non-fatal
   }
 
-  // P1 fix : nettoyer aussi les uploads multer sur le chemin succes (les
-  // chemins erreur le faisaient deja). Sinon les fichiers s'accumulent
-  // indefiniment dans uploads/.
+  // P1 fix: also clean up the multer uploads on the success path (the
+  // error paths already did). Otherwise files accumulate indefinitely
+  // in uploads/.
   await cleanupFiles([...uploadedPaths, workDir]);
 
   markDone(jobId, 'Terminé');
-  // Le client lit le done=true via son prochain poll puis ferme l'EventSource.
-  // On garde l'entree 60s pour laisser le dernier poll passer, puis cleanup.
+  // The client reads done=true on its next poll then closes the EventSource.
+  // We keep the entry for 60s to let the last poll through, then clean up.
   setTimeout(() => clearProgress(jobId), 60 * 1000).unref();
   res.json(payload);
 });

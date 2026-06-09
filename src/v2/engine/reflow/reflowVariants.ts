@@ -1,17 +1,17 @@
 /**
- * reflowVariants — dessine les vignettes couleur d'un produit en gerant
- * le cas OVERFLOW (plus de variants que de positions template).
+ * reflowVariants — draws a product's color swatches, handling the OVERFLOW
+ * case (more variants than template positions).
  *
- * Strategies :
- *   - n_new <= positions      → comportement actuel : 1 cercle par position
- *   - n_new > positions       → MULTI-LIGNES : on extrapole des positions
- *                               supplementaires en decalant verticalement
- *                               par lignes de meme largeur. La rowHeight est
- *                               la taille de vignette + gap label.
- *                               Si on depasse bottomY → tronque + signal "+N".
- *   - 0 variants              → erase only (zone vide).
+ * Strategies:
+ *   - n_new <= positions      → current behavior: 1 circle per position
+ *   - n_new > positions       → MULTI-LINE: extrapolate additional positions
+ *                               by shifting vertically into rows of the same
+ *                               width. The rowHeight is the swatch size +
+ *                               label gap.
+ *                               If we exceed bottomY → truncate + "+N" signal.
+ *   - 0 variants              → erase only (empty zone).
  *
- * Le label sous chaque cercle est conserve.
+ * The label under each circle is kept.
  */
 
 import type { Bbox, Operation, PlanProduct } from '../../types';
@@ -20,12 +20,12 @@ import type { TemplateProfile } from '../profile';
 import { safeText } from '../safeText';
 import { padBbox } from '../../utils/bbox';
 
-/** Padding (pt) autour des vignettes pour l'erase initial. */
+/** Padding (pt) around the swatches for the initial erase. */
 const ERASE_PAD_VIGNETTE = 2;
 const ERASE_PAD_LABEL = 3;
-/** Gap entre lignes de variantes pour le label + air respiration. */
+/** Gap between variant rows for the label + breathing room. */
 const ROW_GAP_RATIO = 0.55;
-/** Hauteur max de debordement sous bottomY (pt). Si on depasse, tronquer. */
+/** Max overflow height below bottomY (pt). Beyond it, truncate. */
 const OVERFLOW_BOTTOM_TOLERANCE = 6;
 
 export function reflowVariants(
@@ -36,7 +36,7 @@ export function reflowVariants(
   const ops: Operation[] = [];
   const variants = product.variants ?? [];
 
-  // 1. Erase vignettes + labels existants du template
+  // 1. Erase the template's existing swatches + labels
   for (const v of block.variantImages) {
     ops.push({ op: 'erase_rect', bbox: padBbox(v, ERASE_PAD_VIGNETTE) });
   }
@@ -51,8 +51,8 @@ export function reflowVariants(
   const n_new = variants.length;
   const n_per_row = positions.length;
 
-  // 2. Calcul layout multi-lignes
-  // rowHeight = hauteur d'une vignette + gap pour le label en dessous
+  // 2. Compute multi-line layout
+  // rowHeight = height of a swatch + gap for the label below it
   const refVignette = positions[0];
   const vignetteH = refVignette[3] - refVignette[1];
   const rowHeight = vignetteH * (1 + ROW_GAP_RATIO);
@@ -61,7 +61,7 @@ export function reflowVariants(
   const labelFont = profile.headerColorFontPattern;
   const labelColor = '#231f20';
 
-  // 3. Pour chaque variant : calcule position (avec offset y selon row)
+  // 3. For each variant: compute position (with y offset per row)
   const bottomLimit = block.yBottom + OVERFLOW_BOTTOM_TOLERANCE;
   let drawnCount = 0;
   let overflowSurplus = 0;
@@ -79,15 +79,15 @@ export function reflowVariants(
       basePos[3] + yShift,
     ];
 
-    // Verifie qu'on ne sort pas trop bas
+    // Check that we don't go too far down
     if (shiftedBbox[3] > bottomLimit) {
-      // Overflow vertical : on s'arrete, le reste devient surplus
+      // Vertical overflow: stop, the rest becomes surplus
       overflowSurplus = n_new - i;
       break;
     }
 
-    // Erase pour les positions au-dela de la 1ere ligne (la 1ere ligne a deja
-    // ete effacee plus haut via block.variantImages template)
+    // Erase for positions beyond the 1st row (the 1st row was already
+    // erased above via the block.variantImages template)
     if (row > 0) {
       ops.push({ op: 'erase_rect', bbox: padBbox(shiftedBbox, ERASE_PAD_VIGNETTE) });
       const labelBboxClear: Bbox = [
@@ -123,7 +123,7 @@ export function reflowVariants(
     lastBbox = shiftedBbox;
   }
 
-  // 4. Signal overflow si on a du tronquer
+  // 4. Overflow signal if we had to truncate
   if (overflowSurplus > 0 && lastBbox) {
     const noteY = lastBbox[3] + 2 + labelSize + 4;
     if (noteY + labelSize <= bottomLimit + 12) {
@@ -141,4 +141,4 @@ export function reflowVariants(
   return ops;
 }
 
-// padBbox : voir utils/bbox.ts (factorisation audit #12).
+// padBbox: see utils/bbox.ts (factored out, audit #12).

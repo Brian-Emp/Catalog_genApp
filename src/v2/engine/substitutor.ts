@@ -1,14 +1,14 @@
 /**
- * Phase 3 : substitution in-place d'une page produit du template.
+ * Phase 3: in-place substitution of a template product page.
  *
- * Pour chaque bloc du template, on utilise les EXACTES positions+styles
- * (font, size, color, bbox) des spans source comme empreinte. On efface
- * chaque zone et on reecrit le nouveau texte au meme endroit. PAS de
- * recalcul de layout — on respecte le template a la lettre.
+ * For each template block, we use the EXACT positions+styles (font, size,
+ * color, bbox) of the source spans as a fingerprint. We erase each zone and
+ * rewrite the new text in the same place. NO layout recomputation — we
+ * respect the template to the letter.
  *
- * Si product < blocs : les blocs restants sont effaces (zone blanche).
- * Si product > blocs : on tronque (l'allocator a deja choisi une page de
- * la bonne taille).
+ * If products < blocks: the remaining blocks are erased (white zone).
+ * If products > blocks: we truncate (the allocator has already picked a page
+ * of the right size).
  */
 
 import type {
@@ -37,47 +37,46 @@ export interface SubstituteContext {
   pageWidth: number;
   pageHeight: number;
   profile: TemplateProfile;
-  /** Tous les spans du template sur cette page. Sert au polish residus :
-   *  toute trace textuelle du produit d'origine (bandeaux promo, mentions
-   *  "thermostatique a corps froid", etc.) qui n'a pas ete remplacee par
-   *  une op insert_text est effacee automatiquement. */
+  /** All template spans on this page. Used by the residue polish: any textual
+   *  trace of the original product (promo banners, "thermostatique a corps
+   *  froid" mentions, etc.) that was not replaced by an insert_text op is
+   *  erased automatically. */
   rawSpans?: TextSpan[];
-  /** Toutes les bbox de bitmaps sur la page (pour effacer pictos NF,
-   *  tampons "FABRIQUE EN FRANCE", etc. residus dans les blocs). */
+  /** All bitmap bboxes on the page (to erase NF pictos, "FABRIQUE EN FRANCE"
+   *  stamps, etc. left over in the blocks). */
   rawImages?: Bbox[];
-  /** Bbox de toutes les decorations vectorielles (pictos dessines en
-   *  paths). On efface celles dans les blocs qui ne touchent pas les
-   *  bords (= pas de rubans structurels). */
+  /** Bboxes of all vector decorations (pictos drawn as paths). We erase those
+   *  in the blocks that do not touch the edges (= not structural ribbons). */
   decorationVectors?: Bbox[];
-  /** Paths colores (bbox + fill_color) du template. Permet de retrouver
-   *  la teinte d'un cartouche section_banner pour substituer le label. */
+  /** Colored paths (bbox + fill_color) of the template. Lets us recover the
+   *  tint of a section_banner cartouche to substitute the label. */
   rawPaths?: { bbox: Bbox; fill_color: ColorHex }[];
-  /** Spans section_banner detectes par le classifier (label text + bbox). */
+  /** section_banner spans detected by the classifier (label text + bbox). */
   sectionBannerSpans?: TextSpan[];
-  /** Nouveau label de section a inscrire dans les cartouches (ex
-   *  "BARRES DE DOUCHES"). Si vide : on ne substitue pas le banner. */
+  /** New section label to write into the cartouches (e.g.
+   *  "BARRES DE DOUCHES"). If empty: we do not substitute the banner. */
   newSectionLabel?: string;
-  /** Spans verticaux (rotation=90/270) detectes sur le bord droit de la
-   *  page = ruban "section_ribbon" template (ex "salle de bains"). */
+  /** Vertical spans (rotation=90/270) detected on the right edge of the page
+   *  = template "section_ribbon" (e.g. "salle de bains"). */
   ribbonSpans?: TextSpan[];
-  /** Nouveau label famille a inscrire sur le ruban vertical (ex "SANITAIRE"
-   *  depuis Libellé Famille du XLSX). Si vide : on ne substitue pas. */
+  /** New family label to write on the vertical ribbon (e.g. "SANITAIRE" from
+   *  the XLSX Libellé Famille). If empty: we do not substitute. */
   newFamilyLabel?: string;
-  /** Mode multi-cols horizontal (S6.5) propage depuis substitutePage vers
-   *  substituteBlock puis reflowSpecsV2. Voir ReflowSpecsV2Context. */
+  /** Horizontal multi-cols mode (S6.5) propagated from substitutePage to
+   *  substituteBlock then reflowSpecsV2. See ReflowSpecsV2Context. */
   horizontalMode?: 'vertical' | 'horizontal-primary' | 'horizontal-secondary';
-  /** X droit de la colonne du bloc courant en mode horizontal. */
+  /** Right X of the current block's column in horizontal mode. */
   horizontalColRight?: number;
 }
 
-/** Calcule pour chaque bloc d'une page horizontale son mode (primary si 1er
- *  de la row Y, secondary sinon) et son horizontalColRight (X du bloc voisin
- *  a droite OU bord page).
+/** Computes, for each block of a horizontal page, its mode (primary if first
+ *  in the Y row, secondary otherwise) and its horizontalColRight (X of the
+ *  neighboring block on the right OR page edge).
  *
- *  Faille review : colRight ne doit JAMAIS etre Infinity (propagation
- *  problematique a PDFium). Pour le dernier bloc d'une row, on retourne
- *  `pageWidth - ribbonMargin` (clamp explicite).
- *  Tolerance Y adaptee a la nameSize moyenne (vs 8pt fixe). */
+ *  Review flaw: colRight must NEVER be Infinity (problematic propagation to
+ *  PDFium). For the last block of a row, we return `pageWidth - ribbonMargin`
+ *  (explicit clamp).
+ *  Y tolerance adapted to the mean nameSize (vs a fixed 8pt). */
 export function computeHorizontalRowMeta(
   blocks: ProductBlock[],
   pageWidth?: number,
@@ -88,7 +87,7 @@ export function computeHorizontalRowMeta(
     { mode: 'horizontal-primary' | 'horizontal-secondary'; colRight: number }
   >();
   if (blocks.length === 0) return meta;
-  // Tolerance Y adaptee a la nameSize median (vs 8pt fixe)
+  // Y tolerance adapted to the median nameSize (vs a fixed 8pt)
   const sizes = blocks.map((b) => b.nameSpan.size).sort((a, b) => a - b);
   const medianSize = sizes[Math.floor(sizes.length / 2)];
   const Y_TOL = Math.max(4, medianSize * 0.30);
@@ -107,8 +106,8 @@ export function computeHorizontalRowMeta(
     }
     rows.get(rowKey)!.push(b);
   }
-  // Borne finie pour le dernier bloc de chaque row : pageWidth - ribbonMargin
-  // ou fallback raisonnable si pageWidth indispo.
+  // Finite bound for the last block of each row: pageWidth - ribbonMargin or
+  // a reasonable fallback if pageWidth is unavailable.
   const lastBlockColRight =
     pageWidth !== undefined && ribbonMargin !== undefined
       ? pageWidth - ribbonMargin
@@ -129,11 +128,11 @@ export function computeHorizontalRowMeta(
 }
 
 /**
- * Substitue les blocs d'une page template avec une liste de produits.
- * - blocks.length === products.length → substitution 1:1
- * - blocks.length > products.length → blocs restants effaces (vides propres)
- * - blocks.length < products.length → les produits en surplus ignores (le
- *   allocator a deja gere cette taille)
+ * Substitutes the blocks of a template page with a list of products.
+ * - blocks.length === products.length → 1:1 substitution
+ * - blocks.length > products.length → remaining blocks erased (clean blanks)
+ * - blocks.length < products.length → the surplus products ignored (the
+ *   allocator has already handled this size)
  */
 export function substitutePage(
   blocks: ProductBlock[],
@@ -141,11 +140,11 @@ export function substitutePage(
   ctx: SubstituteContext,
 ): Operation[] {
   const ops: Operation[] = [];
-  // Mode horizontal (S6.5) : si la page est en layout horizontal, on groupe
-  // les blocs par row Y et on marque le 1er comme primary, les autres
-  // comme secondary. Le substituteBlock relaie ces flags a reflowSpecsV2.
-  // Activation conservatrice : SEULEMENT si TOUS les blocs ont
-  // isHorizontalLayout=true (evite de toucher au comportement Catalogue A vertical).
+  // Horizontal mode (S6.5): if the page has a horizontal layout, we group the
+  // blocks by Y row and mark the first as primary, the others as secondary.
+  // substituteBlock relays these flags to reflowSpecsV2. Conservative
+  // activation: ONLY if ALL blocks have isHorizontalLayout=true (avoids
+  // affecting the Catalogue A vertical behavior).
   const allHorizontal =
     blocks.length > 0 && blocks.every((b) => b.isHorizontalLayout === true);
   const horizontalRowMeta = allHorizontal
@@ -164,78 +163,77 @@ export function substitutePage(
       ops.push(...eraseBlock(block, blockCtx));
     }
   }
-  // Polish residus textuels : erase les spans du template non substitues
-  // dans les zones bloc (bandeaux "Existe en bain-douche", mentions
-  // "THERMOSTATIQUE A CORPS FROID", "NOUVEAUTE", etc.).
+  // Textual residue polish: erase the non-substituted template spans in the
+  // block zones (banners "Existe en bain-douche", mentions "THERMOSTATIQUE A
+  // CORPS FROID", "NOUVEAUTE", etc.).
   if (ctx.rawSpans) {
     ops.push(...polishResidualSpans(ctx.rawSpans, blocks, ops, ctx));
   }
-  // Polish residus visuels : erase pictos bitmap (badges NF, "FABRIQUE
-  // EN FRANCE", etc.) et pictos vectoriels (cercle "NOUVEAUTE" rouge,
-  // demi-cercle thermostatique, etc.) dans les zones bloc, sauf l'image
-  // principale produit et les rubans/headers structurels qui touchent
-  // les bords de la page.
+  // Visual residue polish: erase bitmap pictos (NF badges, "FABRIQUE EN
+  // FRANCE", etc.) and vector pictos (red "NOUVEAUTE" circle, thermostatic
+  // half-circle, etc.) in the block zones, except the main product image and
+  // the structural ribbons/headers that touch the page edges.
   if (ctx.rawImages) {
     ops.push(...polishResidualBitmaps(ctx.rawImages, blocks, ops, ctx));
   }
   if (ctx.decorationVectors) {
     ops.push(...polishResidualVectors(ctx.decorationVectors, blocks, ctx));
   }
-  // Substitution des section_banner (cartouches "ÉVIERS BAS - MITIGEURS"
-  // -> "BARRES DE DOUCHES"). On emet l'insert_text AVANT l'erase colore,
-  // pour que le PASS 1 du render fasse :
-  //   1) insert_text PASS 1 = auto-erase blanc (annule la teinte du path)
-  //   2) erase_rect coloré = repeint la teinte template par-dessus
-  // En PASS 2 le texte arrive au-dessus → cartouche teinté + nouveau label.
+  // section_banner substitution (cartouches "ÉVIERS BAS - MITIGEURS" ->
+  // "BARRES DE DOUCHES"). We emit the insert_text BEFORE the colored erase,
+  // so that the render's PASS 1 does:
+  //   1) insert_text PASS 1 = white auto-erase (cancels the path tint)
+  //   2) colored erase_rect = repaints the template tint on top
+  // On PASS 2 the text arrives on top → tinted cartouche + new label.
   if (ctx.sectionBannerSpans && ctx.newSectionLabel && ctx.rawPaths) {
     ops.push(...substituteSectionBanners(ctx));
   }
-  // Ruban vertical (famille). Substitue "cuisine"/"salle de bains" du template
-  // par la famille du produit ("SANITAIRE", "CHAUFFAGE", etc.).
+  // Vertical ribbon (family). Substitutes the template's "cuisine"/"salle de
+  // bains" with the product's family ("SANITAIRE", "CHAUFFAGE", etc.).
   if (ctx.ribbonSpans && ctx.newFamilyLabel) {
     ops.push(...substituteFamilyRibbon(ctx));
   }
   return ops;
 }
 
-/** Constantes ruban vertical. */
+/** Vertical ribbon constants. */
 const RIBBON_MARGIN_PT = 4;
-/** Taille fallback si span.size < 8pt (artefact d'extraction PDFium sur
- *  texte rotated). */
+/** Fallback size if span.size < 8pt (PDFium extraction artifact on rotated
+ *  text). */
 const RIBBON_FALLBACK_SIZE_PT = 14;
-/** Detection artefact d'extraction. */
+/** Extraction artifact detection. */
 const RIBBON_ARTIFACT_THRESHOLD_PT = 8;
-/** Plancher du shrink : on n'ira pas en dessous, on troncature plutot. */
+/** Shrink floor: we will not go below it, we truncate instead. */
 const RIBBON_MIN_SHRINK_SIZE_PT = 10;
-/** Anti-debordement : le texte ne doit pas remplir + de X% de la hauteur
- *  du fond colore. Au-dessus → on shrink AVANT de tolerer l'agrandissement
- *  visuel ("ribbon enorme" sur textes longs). */
+/** Anti-overflow: the text must not fill more than X% of the colored
+ *  background's height. Above that → we shrink BEFORE tolerating the visual
+ *  enlargement ("huge ribbon" on long texts). */
 const RIBBON_MAX_FILL_RATIO = 0.85;
-/** Pas de decrement du shrink (pt). */
+/** Shrink decrement step (pt). */
 const RIBBON_SHRINK_STEP = 0.5;
 
-/** Substitue le ruban vertical (label famille, rotation 90/270 sur bord droit).
- *  Erase + insert avec le nouveau label. Si le ruban template a un fond
- *  COLORÉ (barre orange/verte), on cherche le path correspondant et on
- *  emet un erase_rect coloré pour repeindre la teinte par-dessus l'auto-erase
- *  blanc. Sinon : erase blanc simple (fallback). */
+/** Substitutes the vertical ribbon (family label, rotation 90/270 on the
+ *  right edge). Erase + insert with the new label. If the template ribbon has
+ *  a COLORED background (orange/green bar), we look for the matching path and
+ *  emit a colored erase_rect to repaint the tint over the white auto-erase.
+ *  Otherwise: simple white erase (fallback). */
 function substituteFamilyRibbon(ctx: SubstituteContext): Operation[] {
   const ops: Operation[] = [];
   const newLabel = (ctx.newFamilyLabel ?? '').trim();
   if (newLabel.length === 0) return ops;
   const paths = ctx.rawPaths ?? [];
-  // Anti-double-substitution : si un span est DEJA un section_banner (remplace
-  // par le label section, ex "BARRES DE DOUCHES"), il ne doit PAS aussi recevoir
-  // le ruban famille ("SANITAIRE") par-dessus. Bug observe (catalogue Catalogue A
-  // p6) : le bandeau-haut [303,12,560,27] etait classe a la fois section_banner
-  // ET ribbon → 2 insert_text superposes "BARRES DE DOUCHES" + "SANITAIRE".
+  // Anti-double-substitution: if a span is ALREADY a section_banner (replaced
+  // by the section label, e.g. "BARRES DE DOUCHES"), it must NOT also receive
+  // the family ribbon ("SANITAIRE") on top. Observed bug (catalog Catalogue A
+  // p6): the top banner [303,12,560,27] was classified as both section_banner
+  // AND ribbon → 2 overlapping insert_text "BARRES DE DOUCHES" + "SANITAIRE".
   const bannerBboxes = ctx.newSectionLabel
     ? (ctx.sectionBannerSpans ?? []).map((b) => b.bbox)
     : [];
   for (const span of ctx.ribbonSpans ?? []) {
     if (bannerBboxes.length > 0 && isCovered(span.bbox, bannerBboxes, 0.5)) continue;
-    // Casse template : si span all lower → lower, all upper → upper, sinon
-    // capitalize. Respecte la typo originale ("salle de bains" vs "CUISINE").
+    // Template case: if span all lower → lower, all upper → upper, otherwise
+    // capitalize. Respects the original typography ("salle de bains" vs "CUISINE").
     const tplText = span.text.trim();
     let styled = newLabel;
     if (tplText.length > 0) {
@@ -245,27 +243,27 @@ function substituteFamilyRibbon(ctx: SubstituteContext): Operation[] {
       else if (hasUpper && !hasLower) styled = newLabel.toUpperCase();
       else styled = newLabel.charAt(0).toUpperCase() + newLabel.slice(1).toLowerCase();
     }
-    // Détection orientation : si bbox plus large que haute → ribbon horizontal
-    // (bandeau page haut/bas). Sinon → vertical (bord gauche/droit).
+    // Orientation detection: if the bbox is wider than tall → horizontal
+    // ribbon (top/bottom page banner). Otherwise → vertical (left/right edge).
     const spanW = span.bbox[2] - span.bbox[0];
     const spanH = span.bbox[3] - span.bbox[1];
     const isHorizontalRibbon = spanW > spanH;
 
-    // Recherche du PATH coloré qui fait office de fond du ruban.
-    // Critères différents selon orientation : vertical = bande étroite haute,
-    // horizontal = bande large peu haute.
+    // Look for the COLORED PATH that serves as the ribbon background.
+    // Different criteria by orientation: vertical = narrow tall band,
+    // horizontal = wide short band.
     const bg = paths.find((p) => {
       const pw = p.bbox[2] - p.bbox[0];
       const ph = p.bbox[3] - p.bbox[1];
       if (isHorizontalRibbon) {
-        // Bandeau horizontal : large + peu haut + contient le span
+        // Horizontal banner: wide + short + contains the span
         if (pw < ctx.pageWidth * 0.20) return false;
         if (ph >= 60) return false;
         if (!(p.bbox[0] - 4 <= span.bbox[0] && p.bbox[2] + 4 >= span.bbox[2])) return false;
         if (!(p.bbox[1] - 4 <= span.bbox[1] && p.bbox[3] + 4 >= span.bbox[3])) return false;
         return true;
       }
-      // Vertical : bande étroite + haute
+      // Vertical: narrow + tall band
       if (pw >= 50) return false;
       if (ph < ctx.pageHeight * 0.25) return false;
       if (!(p.bbox[1] - 4 <= span.bbox[1] && p.bbox[3] + 4 >= span.bbox[3])) return false;
@@ -273,29 +271,29 @@ function substituteFamilyRibbon(ctx: SubstituteContext): Operation[] {
       return true;
     });
 
-    // Taille initiale : on PRESERVE la taille du span template (ne pas forcer
-    // un MIN_PT artificiel qui agrandit les textes courts inutilement). Si
-    // le span est detecte trop petit (artefact d'extraction PDFium sur texte
-    // rotated), fallback a RIBBON_FALLBACK_SIZE_PT pour lisibilite.
+    // Initial size: we PRESERVE the template span's size (do not force an
+    // artificial MIN_PT that needlessly enlarges short texts). If the span is
+    // detected too small (PDFium extraction artifact on rotated text), fall
+    // back to RIBBON_FALLBACK_SIZE_PT for readability.
     let effectiveSize = span.size < RIBBON_ARTIFACT_THRESHOLD_PT
       ? RIBBON_FALLBACK_SIZE_PT
       : span.size;
 
-    // IMPORTANT : pour rotation=90 dans render.cpp (FPDFPageObj_Transform
-    // 0,-1,1,0), le texte est dessine depuis l'anchor y1 et progresse
-    // VERS LE BAS de l'ecran (y croissant en coords top-left). Donc le
-    // texte occupe [y1, y1 + neededH] et NON [y1 - neededH, y1].
+    // IMPORTANT: for rotation=90 in render.cpp (FPDFPageObj_Transform
+    // 0,-1,1,0), the text is drawn from the y1 anchor and progresses TOWARD
+    // THE BOTTOM of the screen (increasing y in top-left coords). So the text
+    // occupies [y1, y1 + neededH] and NOT [y1 - neededH, y1].
     const tplY1 = span.bbox[3];
     const topLimit = bg ? bg.bbox[1] + RIBBON_MARGIN_PT : 0;
     const bottomLimit = bg ? bg.bbox[3] - RIBBON_MARGIN_PT : ctx.pageHeight;
     const fullAvail = bottomLimit - topLimit;
-    // Cap "anti-enorme" : le texte ne doit pas occuper + de MAX_FILL_RATIO
-    // de la hauteur du fond, pour preserver des marges visuelles.
+    // "Anti-huge" cap: the text must not occupy more than MAX_FILL_RATIO of
+    // the background's height, to preserve visual margins.
     const targetMaxH = fullAvail * RIBBON_MAX_FILL_RATIO;
 
     let neededH = estimateTextWidth(styled, effectiveSize) + RIBBON_MARGIN_PT;
 
-    // Etape 1 : shrink si > targetMaxH (anti-debordement esthetique).
+    // Step 1: shrink if > targetMaxH (aesthetic anti-overflow).
     if (neededH > targetMaxH) {
       let s = effectiveSize;
       while (s > RIBBON_MIN_SHRINK_SIZE_PT
@@ -306,8 +304,8 @@ function substituteFamilyRibbon(ctx: SubstituteContext): Operation[] {
       neededH = estimateTextWidth(styled, effectiveSize) + RIBBON_MARGIN_PT;
     }
 
-    // Etape 2 : si meme au shrink min on deborde l'espace dispo total, on
-    // tronque avec une ellipse (dernier recours pour textes vraiment longs).
+    // Step 2: if even at the min shrink we overflow the total available space,
+    // we truncate with an ellipsis (last resort for really long texts).
     if (neededH > fullAvail) {
       const ellW = estimateTextWidth('…', effectiveSize);
       while (styled.length > 4
@@ -318,29 +316,29 @@ function substituteFamilyRibbon(ctx: SubstituteContext): Operation[] {
       neededH = estimateTextWidth(styled, effectiveSize) + RIBBON_MARGIN_PT;
     }
 
-    // Position finale : preserve l'anchor template si le texte tient,
-    // sinon centre dans la zone dispo pour un rendu visuel propre.
+    // Final position: preserve the template anchor if the text fits,
+    // otherwise center it in the available zone for a clean visual render.
     let finalY1 = tplY1;
     const fitsAtTpl = finalY1 + neededH <= bottomLimit && finalY1 >= topLimit;
     if (!fitsAtTpl) {
       finalY1 = topLimit + (fullAvail - neededH) / 2;
     }
-    // ATTENTION sémantique bbox pour rotation 90 :
-    // - render.cpp prend bbox[3] (y1) comme ANCHOR PDFium (= pageH - y1).
-    // - Le texte est dessiné depuis cet anchor et PROGRESSE VERS LE BAS
-    //   de l'écran (y croissant en convention top-left).
-    // - Donc la zone occupée par le texte = [y1, y1 + neededH] en top-left.
-    // Pour le insert_text, on passe bbox[3] = finalY1 (= anchor).
-    // Pour le erase, il faut couvrir la zone du texte rendu = [finalY1, finalY1+neededH].
+    // CAREFUL with bbox semantics for rotation 90:
+    // - render.cpp takes bbox[3] (y1) as the PDFium ANCHOR (= pageH - y1).
+    // - The text is drawn from this anchor and PROGRESSES TOWARD THE BOTTOM
+    //   of the screen (increasing y in top-left convention).
+    // - So the zone occupied by the text = [y1, y1 + neededH] in top-left.
+    // For the insert_text, we pass bbox[3] = finalY1 (= anchor).
+    // For the erase, it must cover the rendered text zone = [finalY1, finalY1+neededH].
     const insertBbox: Bbox = [span.bbox[0], finalY1, span.bbox[2], finalY1];
-    // Pad elargi (4pt) pour ribbon vertical : les caracteres accentues
-    // (É, Ç, À) ont des accents qui depassent en X apres rotation 90°.
-    // Faille Catalogue C P7 "ÉVACUATION" → "VACUATION" (É efface incompletement).
+    // Widened pad (4pt) for the vertical ribbon: accented characters
+    // (É, Ç, À) have accents that stick out in X after a 90° rotation.
+    // Catalogue C P7 flaw "ÉVACUATION" → "VACUATION" (É erased incompletely).
     const RIBBON_TEXT_PAD = 4;
-    // L'erase doit couvrir AUSSI le span template original (sinon l'ancien
-    // texte ribbon reste visible a cote du nouveau). Cas Catalogue C P14 :
-    // ÉVACUATION (Y=12-83) + POMPE (Y=83-127) → 2 rubans empiles si l'erase
-    // ne couvre que la zone du nouveau texte. On unionne span tpl + zone new.
+    // The erase must ALSO cover the original template span (otherwise the old
+    // ribbon text stays visible next to the new one). Catalogue C P14 case:
+    // ÉVACUATION (Y=12-83) + POMPE (Y=83-127) → 2 stacked ribbons if the erase
+    // only covers the new text's zone. We union the tpl span + the new zone.
     const tplY0 = span.bbox[1];
     const tplY1Bottom = span.bbox[3];
     const newY0 = finalY1;
@@ -352,10 +350,10 @@ function substituteFamilyRibbon(ctx: SubstituteContext): Operation[] {
       Math.max(tplY1Bottom, newY1Bottom) + RIBBON_TEXT_PAD,
     ];
 
-    // Rotation : 0 si horizontal (bandeau page), 90 si vertical (bord rotated)
+    // Rotation: 0 if horizontal (page banner), 90 if vertical (rotated edge)
     const ribbonRotation = isHorizontalRibbon ? 0 : 90;
-    // Pour ribbon horizontal, on conserve l'anchor X-Y du span tpl sans
-    // recalcul (le texte s'écrit horizontalement, pas besoin de neededH).
+    // For a horizontal ribbon, we keep the tpl span's X-Y anchor without
+    // recomputation (the text is written horizontally, no need for neededH).
     const finalInsertBbox: Bbox = isHorizontalRibbon
       ? [span.bbox[0], span.bbox[1], span.bbox[2], span.bbox[3]]
       : insertBbox;
@@ -365,13 +363,13 @@ function substituteFamilyRibbon(ctx: SubstituteContext): Operation[] {
       : textCoverBbox;
 
     if (bg) {
-      // Pattern teinte preservée : insert_text D'ABORD (PASS 1 = auto-erase
-      // blanc), puis erase_rect colore (PASS 1 = repaint teinte par-dessus).
-      // PASS 2 redessine le texte au-dessus du rect teinté.
+      // Preserved-tint pattern: insert_text FIRST (PASS 1 = white auto-erase),
+      // then colored erase_rect (PASS 1 = repaint tint on top). PASS 2
+      // redraws the text on top of the tinted rect.
       //
-      // Premier erase blanc cible la zone du span template (peut être plus
-      // large que bg.bbox sur catalogues où le path bg est plus court que
-      // le texte). Sans ça, le texte original reste visible si bg < span.
+      // The first white erase targets the template span's zone (which may be
+      // wider than bg.bbox on catalogs where the bg path is shorter than the
+      // text). Without it, the original text stays visible if bg < span.
       ops.push({ op: 'erase_rect', bbox: finalCoverBbox });
       ops.push({
         op: 'insert_text',
@@ -384,7 +382,7 @@ function substituteFamilyRibbon(ctx: SubstituteContext): Operation[] {
       });
       ops.push({ op: 'erase_rect', bbox: bg.bbox, color: bg.fill_color });
     } else {
-      // Fallback : pas de path colore trouve. Erase blanc + insert.
+      // Fallback: no colored path found. White erase + insert.
       ops.push({ op: 'erase_rect', bbox: finalCoverBbox });
       ops.push({
         op: 'insert_text',
@@ -401,12 +399,12 @@ function substituteFamilyRibbon(ctx: SubstituteContext): Operation[] {
 }
 
 /**
- * Pour chaque section_banner detecte, trouve le path colore qui fait
- * office de fond (cartouche orange/vert). Emet :
- *  - un insert_text avec le nouveau label
- *  - un erase_rect colore couvrant le path entier (teinte preservee)
- * L'ordre est important : insert AVANT erase pour que le rendu PASS 1
- * applique d'abord l'auto-erase blanc puis le rect colore par-dessus.
+ * For each detected section_banner, finds the colored path that serves as the
+ * background (orange/green cartouche). Emits:
+ *  - an insert_text with the new label
+ *  - a colored erase_rect covering the entire path (tint preserved)
+ * The order matters: insert BEFORE erase so that the render's PASS 1 first
+ * applies the white auto-erase then the colored rect on top.
  */
 function substituteSectionBanners(ctx: SubstituteContext): Operation[] {
   const ops: Operation[] = [];
@@ -416,7 +414,7 @@ function substituteSectionBanners(ctx: SubstituteContext): Operation[] {
   const paths = ctx.rawPaths ?? [];
   const pageW = ctx.pageWidth;
   for (const span of banners) {
-    // Path candidat : large (> 50% page) + bbox contient le span.
+    // Candidate path: wide (> 50% page) + bbox contains the span.
     const bg = paths.find((p) => {
       const pw = p.bbox[2] - p.bbox[0];
       if (pw < pageW * 0.5) return false;
@@ -425,13 +423,13 @@ function substituteSectionBanners(ctx: SubstituteContext): Operation[] {
       return true;
     });
     if (!bg) {
-      // Fallback sans path colore : erase le texte d'origine + insert le
-      // nouveau label. Pas de fond colore preserve, mais au moins le label
-      // est correct (evite "EVIER" quand la section est "BARRES DE DOUCHES").
-      // Erase elargi proportionnel a la largeur du nouveau label (cas Catalogue C
-      // P6 "EVIER" → "EAUX CLAIRES" : nouveau label 2.4x plus long que
-      // template → erase doit s'etendre suffisamment a droite pour effacer
-      // toute la zone susceptible d'afficher l'ancien text).
+      // Fallback without a colored path: erase the original text + insert the
+      // new label. No colored background preserved, but at least the label is
+      // correct (avoids "EVIER" when the section is "BARRES DE DOUCHES").
+      // Widened erase proportional to the new label's width (Catalogue C P6
+      // case "EVIER" → "EAUX CLAIRES": the new label is 2.4x longer than the
+      // template → the erase must extend far enough to the right to clear the
+      // whole zone that could display the old text).
       const newLabelWidth = estimateTextWidth(label, span.size);
       const tplWidth = span.bbox[2] - span.bbox[0];
       const eraseWidth = Math.max(newLabelWidth + 8, tplWidth + 10);
@@ -452,9 +450,10 @@ function substituteSectionBanners(ctx: SubstituteContext): Operation[] {
       });
       continue;
     }
-    // Erase blanc preliminaire couvrant la zone span template (faille Catalogue C
-    // P6 "EAUX CLAIRES" : le span template "EVIER" deborde du bg orange a
-    // gauche → "E" template residuel visible apres erase colore).
+    // Preliminary white erase covering the template span's zone (Catalogue C
+    // P6 flaw "EAUX CLAIRES": the template span "EVIER" sticks out of the
+    // orange bg on the left → residual template "E" visible after the colored
+    // erase).
     const preEraseBbox: Bbox = [
       Math.min(span.bbox[0], bg.bbox[0]) - 4,
       span.bbox[1] - 3,
@@ -462,8 +461,8 @@ function substituteSectionBanners(ctx: SubstituteContext): Operation[] {
       span.bbox[3] + 3,
     ];
     ops.push({ op: 'erase_rect', bbox: preEraseBbox });
-    // Insert texte (l'auto-erase blanc PASS 1 sera ensuite recouvert par
-    // l'erase colore qui vient juste apres).
+    // Insert text (the PASS 1 white auto-erase will then be covered by the
+    // colored erase that comes right after).
     ops.push({
       op: 'insert_text',
       bbox: [span.bbox[0], span.bbox[1], bg.bbox[2], span.bbox[3]],
@@ -478,10 +477,10 @@ function substituteSectionBanners(ctx: SubstituteContext): Operation[] {
 }
 
 /**
- * Polish : pour chaque span du template situe dans la zone d'un bloc et
- * NON couvert par une op existante (erase_rect ou insert_text), emet un
- * erase_rect cible. Nettoie les vestiges du produit d'origine qui
- * traineraient en arriere-plan apres la substitution.
+ * Polish: for each template span located in a block's zone and NOT covered by
+ * an existing op (erase_rect or insert_text), emits a targeted erase_rect.
+ * Cleans up the remnants of the original product that would linger in the
+ * background after substitution.
  */
 function polishResidualSpans(
   spans: TextSpan[],
@@ -489,19 +488,19 @@ function polishResidualSpans(
   existingOps: Operation[],
   ctx: SubstituteContext,
 ): Operation[] {
-  // Bbox deja couvertes par les ops emises (erase_rect ou insert_text)
+  // Bboxes already covered by the emitted ops (erase_rect or insert_text)
   const coveredBboxes: Bbox[] = [];
   for (const op of existingOps) {
     if (op.op === 'erase_rect') coveredBboxes.push(op.bbox);
     else if (op.op === 'insert_text') coveredBboxes.push(op.bbox);
   }
-  // Zone de chaque bloc (header + image + specs + variants), dernier bloc
-  // etendu vers le footer pour absorber residus en bas de page.
+  // Each block's zone (header + image + specs + variants), the last block
+  // extended toward the footer to absorb residues at the bottom of the page.
   const blockZones = computeBlockZones(blocks, ctx);
-  // Zone produit globale (bloquant #3) : UNION blocs + padding pour absorber
-  // decoratifs hors-blocks (drapeaux ACS, etiquettes inter-blocs Catalogue E).
-  // Active SEULEMENT si tous les blocs sont en horizontal layout
-  // (preservation Catalogue A vertical : comportement legacy maintenu).
+  // Global product zone (blocker #3): UNION of blocks + padding to absorb
+  // out-of-block decorations (ACS flags, inter-block labels on Catalogue E).
+  // Enabled ONLY if all blocks are in horizontal layout (preserves Catalogue
+  // A vertical: legacy behavior maintained).
   const allHorizontal =
     blocks.length > 0 && blocks.every((b) => b.isHorizontalLayout === true);
   const globalZone = allHorizontal
@@ -510,26 +509,26 @@ function polishResidualSpans(
   const residuals: Bbox[] = [];
   for (const span of spans) {
     if (span.text.trim().length === 0) continue;
-    // Le span doit etre DANS au moins une zone bloc OU dans la zone globale
-    // (mode horizontal uniquement)
+    // The span must be IN at least one block zone OR in the global zone
+    // (horizontal mode only)
     const inBlock = blockZones.some((z) => intersects(span.bbox, z));
     const inGlobal = globalZone !== null && intersects(span.bbox, globalZone);
     if (!inBlock && !inGlobal) continue;
-    // Pas couvert au-dessus de 40% par les ops existantes (anciennement 50%).
-    // Plus permissif pour absorber les sous-titres template residuels type
-    // "Exemple" sur Catalogue C P5 qui chevauchent partiellement les ops nouvelles.
+    // Not covered above 40% by the existing ops (formerly 50%). More
+    // permissive to absorb residual template sub-titles like "Exemple" on
+    // Catalogue C P5 that partially overlap the new ops.
     if (isCovered(span.bbox, coveredBboxes, 0.4)) continue;
-    // Padding 4pt : les bbox extracted ne couvrent pas exactement la
-    // hauteur reelle rendue (ascenders/descenders). 1pt etait insuffisant,
-    // pixels residuels visibles sur Catalogue A variants p-5. 4pt absorbe glyphs
-    // Catalogue C grands (nameSize 24-28pt).
+    // 4pt padding: the extracted bboxes do not exactly cover the actual
+    // rendered height (ascenders/descenders). 1pt was insufficient, residual
+    // pixels visible on Catalogue A variants p-5. 4pt absorbs large Catalogue
+    // C glyphs (nameSize 24-28pt).
     residuals.push(padBbox(span.bbox, 4));
   }
   return residuals.map((b) => ({ op: 'erase_rect' as const, bbox: b }));
 }
 
-/** Polish bitmap residuels : badges, pictos NF/Fabriques en France. Garde
- *  uniquement la mainImageBbox du bloc et les variantImages. */
+/** Residual bitmap polish: badges, NF/Made in France pictos. Keeps only the
+ *  block's mainImageBbox and the variantImages. */
 function polishResidualBitmaps(
   images: Bbox[],
   blocks: ProductBlock[],
@@ -541,7 +540,7 @@ function polishResidualBitmaps(
     if (block.mainImageBbox) keepBboxes.push(block.mainImageBbox);
     keepBboxes.push(...block.variantImages);
   }
-  // Ne pas re-erase ce qui l'a deja ete
+  // Do not re-erase what has already been erased
   const erased: Bbox[] = existingOps
     .filter((o): o is OpEraseRect => o.op === 'erase_rect')
     .map((o) => o.bbox);
@@ -556,8 +555,8 @@ function polishResidualBitmaps(
   return ops;
 }
 
-/** Polish vectoriels : badges/pictos vectoriels dans les blocs. Garde les
- *  decorations structurelles (rubans, headers qui touchent les bords). */
+/** Vector polish: vector badges/pictos in the blocks. Keeps the structural
+ *  decorations (ribbons, headers that touch the edges). */
 function polishResidualVectors(
   vectors: Bbox[],
   blocks: ProductBlock[],
@@ -571,9 +570,9 @@ function polishResidualVectors(
     const w = v[2] - v[0];
     const h = v[3] - v[1];
 
-    // Structurel : couvre DEUX bords opposes (= banner pleine largeur,
-    // ruban vertical, header band). Plus strict que "touche UN bord" qui
-    // ratait les bandes longues partant d'un cote.
+    // Structural: covers TWO opposite edges (= full-width banner, vertical
+    // ribbon, header band). Stricter than "touches ONE edge" which missed the
+    // long bands starting from one side.
     const touchesLeft = v[0] < margin;
     const touchesRight = v[2] > ctx.pageWidth - margin;
     const touchesTop = v[1] < margin;
@@ -582,23 +581,23 @@ function polishResidualVectors(
       continue;
     }
 
-    // P1.5 : ribbon long structurel touchant UN bord. Un cartouche vertical
-    // etroit (w<30, h>30%) qui touche le top OU le bottom est probablement
-    // un ruban de section qui ne descend qu'a mi-page (vu sur Catalogue A pages
-    // produit secondaires). Ne pas effacer.
+    // P1.5: long structural ribbon touching ONE edge. A narrow vertical
+    // cartouche (w<30, h>30%) that touches the top OR the bottom is probably a
+    // section ribbon that only goes to mid-page (seen on secondary Catalogue A
+    // product pages). Do not erase.
     const isVerticalRibbon = w < 30 && h > ctx.pageHeight * 0.3;
     const isHorizontalRibbon = h < 30 && w > ctx.pageWidth * 0.3;
     if (isVerticalRibbon && (touchesTop || touchesBottom)) continue;
     if (isHorizontalRibbon && (touchesLeft || touchesRight)) continue;
 
-    // Fond / header band trop massif
+    // Background / header band too massive
     if (w > ctx.pageWidth * 0.7 || h > ctx.pageHeight * 0.5) continue;
-    // Petits pictos < 6pt : trait de separation utile, on garde
+    // Small pictos < 6pt: useful separator line, we keep it
     if (w < 6 && h < 6) continue;
 
-    // Ligne fine horizontale ou verticale ANORMALEMENT longue : trait
-    // decoratif (w/h > 30 et fine = < 3pt) → on l'efface meme si elle
-    // touche un bord (la "ligne sous le nom" qui depasse).
+    // ABNORMALLY long thin horizontal or vertical line: decorative line (w/h
+    // > 30 and thin = < 3pt) → we erase it even if it touches an edge (the
+    // "line under the name" that overruns).
     const aspectRatio = Math.max(w, h) / Math.max(1, Math.min(w, h));
     if (aspectRatio > 30 && Math.min(w, h) < 3) {
       ops.push({ op: 'erase_rect', bbox: padBbox(v, 1) });
@@ -614,28 +613,28 @@ export function computeBlockZones(
   blocks: ProductBlock[],
   ctx: SubstituteContext,
 ): Bbox[] {
-  // Tri par yTop pour identifier le dernier bloc de la page (= celui dont
-  // yBottom est le plus bas). On etend SA zone vers le bas jusqu'au footer
-  // pour absorber les variants couleur / image lifestyle / badges qui
-  // trainent entre le dernier produit et le pied de page.
+  // Sort by yTop to identify the last block of the page (= the one with the
+  // lowest yBottom). We extend ITS zone downward to the footer to absorb the
+  // color variants / lifestyle image / badges that linger between the last
+  // product and the page foot.
   const sorted = [...blocks].sort((a, b) => a.yTop - b.yTop);
   const lastBlock = sorted[sorted.length - 1];
-  // Padding vers le haut : 4pt par defaut, mais on etend jusqu'a 12pt sur
-  // les blocs qui ont un voisin AU-DESSUS suffisamment espace, pour absorber
-  // les badges type "NOUVEAUTE" / "PROMO" / pictos saisonniers qui flottent
-  // entre 2 blocs et echappent au polish (faille review #8).
-  // Limite par le yBottom du bloc precedent (pas de chevauchement).
+  // Upward padding: 4pt by default, but we extend up to 12pt on blocks that
+  // have a sufficiently spaced neighbor ABOVE, to absorb badges like
+  // "NOUVEAUTE" / "PROMO" / seasonal pictos that float between 2 blocks and
+  // escape the polish (review flaw #8).
+  // Capped by the previous block's yBottom (no overlap).
   const BLOCK_TOP_PADDING_DEFAULT = 4;
   const BLOCK_TOP_PADDING_MAX = 12;
   return blocks.map((block) => {
     const isLast = block === lastBlock;
-    // Trouver le bloc immediatement au-dessus (yBottom < block.yTop)
+    // Find the block immediately above (yBottom < block.yTop)
     const prevBlock = sorted
       .filter((b) => b.yBottom < block.yTop)
       .sort((a, b) => b.yBottom - a.yBottom)[0];
     const gapAbove = prevBlock
       ? block.yTop - prevBlock.yBottom
-      : block.yTop; // pas de bloc au-dessus → toute la zone jusqu'au top page
+      : block.yTop; // no block above → the whole zone up to the page top
     const topPadding = Math.min(
       BLOCK_TOP_PADDING_MAX,
       Math.max(BLOCK_TOP_PADDING_DEFAULT, gapAbove / 2 - 1),
@@ -652,20 +651,19 @@ export function computeBlockZones(
   });
 }
 
-/** Calcule UNE bbox UNION couvrant tous les blocs produit de la page +
- *  padding modere. Sert au polish "zone produit globale" : on absorbe
- *  les decoratifs (drapeaux ACS/CSTBat, etiquettes "Diametre 12/16/20"
- *  sur Catalogue E) qui flottent ENTRE les blocs et echappaient au polish
- *  block-zone individuel.
+/** Computes a single UNION bbox covering all product blocks of the page +
+ *  moderate padding. Used by the "global product zone" polish: we absorb the
+ *  decorations (ACS/CSTBat flags, "Diametre 12/16/20" labels on Catalogue E)
+ *  that float BETWEEN the blocks and escaped the individual block-zone polish.
  *
- *  Bornes :
- *   - x : min/max parmi tous les blocs + padding margin
- *   - y : top du 1er bloc - paddingTop, bottom du dernier - paddingBottom
+ *  Bounds:
+ *   - x: min/max across all blocks + padding margin
+ *   - y: top of the first block - paddingTop, bottom of the last - paddingBottom
  *
- *  Exclusion : ne couvre PAS les marges header/footer (top 30pt, bottom 30pt)
- *  pour preserver titres section + pagination.
+ *  Exclusion: does NOT cover the header/footer margins (top 30pt, bottom
+ *  30pt) to preserve section titles + pagination.
  *
- *  Retourne null si pas de blocs (rien a polish au global). */
+ *  Returns null if there are no blocks (nothing to polish globally). */
 export function computeProductZoneGlobal(
   blocks: ProductBlock[],
   ctx: SubstituteContext,
@@ -713,9 +711,9 @@ function isCovered(span: Bbox, covered: Bbox[], threshold: number): boolean {
   return false;
 }
 
-// padBbox : voir utils/bbox.ts (factorisation audit #12).
+// padBbox: see utils/bbox.ts (factored out, audit #12).
 
-/** Substitue un bloc template avec un produit nouveau (style emprunte). */
+/** Substitutes a template block with a new product (borrowed style). */
 export function substituteBlock(
   block: ProductBlock,
   product: PlanProduct,
@@ -723,41 +721,39 @@ export function substituteBlock(
 ): Operation[] {
   const ops: Operation[] = [];
 
-  // 0. Erase de fond du bloc complet AVANT toute insertion. Couvre les
-  // spans permanents du template qui ne sont pas explicitement substitués
-  // par les étapes 1-5 ci-dessous (codes-barres, sous-titres "LES + PRODUITS",
-  // étiquettes décoratives, etc.). Sans ce nettoyage, le contenu original
-  // se superpose au nouveau produit.
+  // 0. Erase the whole block's background BEFORE any insertion. Covers the
+  // permanent template spans that are not explicitly substituted by steps 1-5
+  // below (barcodes, sub-titles "LES + PRODUITS", decorative labels, etc.).
+  // Without this cleanup, the original content overlaps the new product.
   //
-  // Zone : du X gauche (min nameSpan / specsXLeft) au X droit (avant
-  // ribbon), Y du haut du nom au bas du bloc. PAD modéré pour ne pas
-  // déborder sur des éléments décoratifs adjacents (banners section,
-  // ribbon vertical).
+  // Zone: from the left X (min nameSpan / specsXLeft) to the right X (before
+  // the ribbon), Y from the top of the name to the bottom of the block.
+  // Moderate PAD so as not to spill onto adjacent decorative elements
+  // (section banners, vertical ribbon).
   //
-  // Extension haute : couvre une zone supplémentaire de ~2 lignes au-dessus
-  // du nameSpan pour capturer les titres internes / sous-headers serrés
-  // (ex Catalogue C "LES + PRODUITS" à Y_titre = yTop - 11pt). Calibré sur
-  // 2 * nameSize → ~30pt à 15pt. Sur Catalogue A (3 blocs/page), cette extension
-  // n'atteint pas le bloc précédent (gap typique ~150pt entre 2 blocs).
+  // Top extension: covers an extra zone of ~2 lines above the nameSpan to
+  // capture internal titles / tight sub-headers (e.g. Catalogue C "LES +
+  // PRODUITS" at Y_title = yTop - 11pt). Calibrated on 2 * nameSize → ~30pt at
+  // 15pt. On Catalogue A (3 blocks/page), this extension does not reach the
+  // previous block (typical gap ~150pt between 2 blocks).
   //
-  // Garde-fou : ne s'applique QUE si le bloc a une zone bien définie
-  // (yBottom > yTop + 20pt). Évite d'effacer toute la page en cas de
-  // bloc dégénéré.
+  // Guard: applies ONLY if the block has a well-defined zone (yBottom > yTop +
+  // 20pt). Avoids erasing the whole page in case of a degenerate block.
   const BLOCK_ERASE_PAD = 2;
   const BLOCK_ERASE_TOP_EXTRA_LINES = 2;
-  // Clamp yBottom (faille Catalogue C P6 vide) : si yBottom > 85% pageH, on est
-  // sur le dernier bloc avec yBottom estime jusqu'au footer. Sans clamp,
-  // l'erase fond efface 50%+ de la page sans pouvoir remplir → page blanche.
-  // Limite raisonnable : max(yTop + 300, 85% pageH). 300pt couvre une fiche
-  // produit standard (header + image + 5-7 specs).
-  // Cap conservateur Catalogue A : sur Catalogue A les blocs font ~250pt → 300pt suffit.
+  // Clamp yBottom (Catalogue C P6 empty flaw): if yBottom > 85% pageH, we are
+  // on the last block with yBottom estimated down to the footer. Without a
+  // clamp, the background erase wipes 50%+ of the page without being able to
+  // fill it → blank page. Reasonable limit: max(yTop + 300, 85% pageH). 300pt
+  // covers a standard product sheet (header + image + 5-7 specs).
+  // Conservative Catalogue A cap: on Catalogue A the blocks are ~250pt → 300pt is enough.
   const blockHeight = block.yBottom - block.yTop;
   if (blockHeight > 20) {
     const xLeft = Math.min(block.nameSpan.bbox[0], block.specsXLeft) - BLOCK_ERASE_PAD;
-    // En mode horizontal : clamp xRight a la col du bloc (sinon le erase fond
-    // couvre la page entiere et detruit les blocs voisins). Cas Catalogue C P14 :
-    // 3 blocs ECOP/ECL/ECL cote a cote → chaque erase pleine largeur effacait
-    // les autres.
+    // In horizontal mode: clamp xRight to the block's column (otherwise the
+    // background erase covers the entire page and destroys the neighboring
+    // blocks). Catalogue C P14 case: 3 blocks ECOP/ECL/ECL side by side → each
+    // full-width erase wiped the others.
     const xRight =
       ctx.horizontalMode !== undefined && ctx.horizontalColRight !== undefined
         ? ctx.horizontalColRight
@@ -779,11 +775,11 @@ export function substituteBlock(
     });
   }
 
-  // 1. Nom produit : reflow adaptatif. Tente 1 ligne a taille originale,
-  // wrap 2 lignes si necessaire, shrink jusqu'a 70%, ellipse en dernier
-  // recours. Bottom-bound = top du color/ref pour ne pas chevaucher.
-  // Mode horizontal (S6.5) : rightBound = col du bloc voisin (eviter le nom
-  // de wrapper sur le produit a droite). Sinon legacy = pleine page.
+  // 1. Product name: adaptive reflow. Tries 1 line at the original size, wraps
+  // to 2 lines if needed, shrinks down to 70%, ellipsis as a last resort.
+  // Bottom-bound = top of the color/ref so as not to overlap. Horizontal mode
+  // (S6.5): rightBound = neighboring block's column (prevents the name from
+  // wrapping onto the product on the right). Otherwise legacy = full page.
   const colorTopY = block.colorSpan
     ? block.colorSpan.bbox[1] - 2
     : block.nameSpan.bbox[3] + 12;
@@ -800,19 +796,19 @@ export function substituteBlock(
   });
   ops.push(...nameReflow.ops);
 
-  // 2. Color + Ref sous le nom
+  // 2. Color + Ref under the name
   ops.push(...substituteColorAndRef(block, product, ctx.profile));
 
-  // 3. Specs : reecriture aux memes positions. V2 = tableau categorise avec
-  // dot leader + headers de categorie + layout responsive. V1 = layout legacy
-  // (selectionnable via env REFLOW_SPECS=v1 pour comparaison/rollback).
-  // V1 deprecated (refacto Phase 2) : warning emis si active.
+  // 3. Specs: rewrite at the same positions. V2 = categorized table with dot
+  // leader + category headers + responsive layout. V1 = legacy layout
+  // (selectable via env REFLOW_SPECS=v1 for comparison/rollback). V1
+  // deprecated (Phase 2 refactor): a warning is emitted if enabled.
   const useSpecsV1 = process.env.REFLOW_SPECS === 'v1';
   if (useSpecsV1) {
     warnDeprecatedReflowV1();
     ops.push(...reflowSpecsModule(block, product, ctx));
   } else {
-    // Propagation mode horizontal (S6.5) depuis SubstituteContext vers
+    // Horizontal mode propagation (S6.5) from SubstituteContext to
     // ReflowSpecsV2Context.
     ops.push(
       ...reflowSpecsV2(block, product, {
@@ -823,19 +819,19 @@ export function substituteBlock(
     );
   }
 
-  // 4. Variantes (drop si rien, sinon dessine avec layout MULTI-LIGNES si
-  // plus de variants que de positions template)
+  // 4. Variants (drop if none, otherwise draw with a MULTI-LINE layout if
+  // there are more variants than template positions)
   ops.push(...reflowVariantsModule(block, product, ctx.profile));
 
-  // 5. Image principale : on calcule une bbox GENEREUSE qui prend toute la
-  // zone disponible du bloc (entre header et bas, jusqu'a la colonne specs).
-  // Ainsi une image produit carree (500x500) n'est plus reduite a 86x86 dans
-  // la bbox etriquee du faucet template, mais inscrite dans 200x200 typique.
-  // Image template : on l'efface TOUJOURS (qu'on ait une image source ou
-  // non). Sinon l'ancien mitigeur Athena/Ravea persiste a cote du nouveau
-  // produit (incoherent visuellement). Si block.mainImageBbox detecte =
-  // erase explicite de cette bbox + 2pt padding. Sinon erase de la zone
-  // calculee par computeImageBbox.
+  // 5. Main image: we compute a GENEROUS bbox that takes the whole available
+  // zone of the block (between header and bottom, up to the specs column).
+  // This way a square product image (500x500) is no longer shrunk to 86x86 in
+  // the cramped bbox of the template faucet, but inscribed in a typical
+  // 200x200. Template image: we ALWAYS erase it (whether we have a source
+  // image or not). Otherwise the old Athena/Ravea mixer persists next to the
+  // new product (visually inconsistent). If block.mainImageBbox is detected =
+  // explicit erase of that bbox + 2pt padding. Otherwise erase the zone
+  // computed by computeImageBbox.
   const imageBbox = computeImageBbox(block, ctx);
   if (block.mainImageBbox) {
     const m = block.mainImageBbox;
@@ -855,16 +851,16 @@ export function substituteBlock(
     };
     ops.push(drawImg);
   } else {
-    // Tracking : pas d'image source pour ce produit. Le bloc apparait erase
-    // mais sans nouvelle image → zone blanche. Utile pour audit assets.zip
-    // incomplet (faille audit pipeline).
+    // Tracking: no source image for this product. The block appears erased
+    // but without a new image → white zone. Useful to audit an incomplete
+    // assets.zip (pipeline audit flaw).
     recordMissingProductImage(block.pageNumber, product.name ?? '(sans nom)');
   }
 
   return ops;
 }
 
-// ─── Deprecation reflowSpecs V1 (Phase 2 refacto) ──────────────────────────
+// ─── reflowSpecs V1 deprecation (Phase 2 refactor) ─────────────────────────
 let v1DeprecationWarned = false;
 function warnDeprecatedReflowV1() {
   if (v1DeprecationWarned) return;
@@ -875,7 +871,7 @@ function warnDeprecatedReflowV1() {
   );
 }
 
-// ─── Stats produits sans image (audit assets.zip) ───────────────────────────
+// ─── Stats for products without an image (assets.zip audit) ─────────────────
 export interface MissingImageInfo {
   pageNumber: number;
   productName: string;
@@ -897,27 +893,27 @@ export function resetMissingProductImages(): void {
 }
 
 /**
- * Calcule la bbox CIBLE de l'image principale du nouveau produit dans
- * le bloc. Le render applique fit:'contain' donc l'image source garde
- * son ratio et est centree dans cette bbox.
+ * Computes the TARGET bbox of the new product's main image within the block.
+ * The render applies fit:'contain', so the source image keeps its ratio and
+ * is centered in this bbox.
  *
- * Strategie : grande bbox = toute la zone dispo entre header et bas du
- * bloc, du nom jusqu'a la colonne specs. fit:contain donnera :
- *   - image carree (mitigeur) → s'inscrit a la taille de la zone
- *   - image verticale (barre douche 1:5) → remplit la hauteur, largeur
- *     proportionnelle, centree horizontalement
- *   - image paysage → remplit la largeur, hauteur proportionnelle,
- *     centree verticalement
+ * Strategy: large bbox = the whole available zone between the header and the
+ * bottom of the block, from the name to the specs column. fit:contain gives:
+ *   - square image (mixer) → fits to the zone size
+ *   - vertical image (shower bar 1:5) → fills the height, proportional width,
+ *     centered horizontally
+ *   - landscape image → fills the width, proportional height, centered
+ *     vertically
  *
- * On NE prend PAS la bbox du template (souvent etroite = mitigeur ~80x80)
- * car elle ecraserait une image verticale a quelques pt de large.
+ * We do NOT take the template's bbox (often narrow = mixer ~80x80) because it
+ * would crush a vertical image to a few pt wide.
  */
-/** Seuil minimum largeur image (pt) en deca duquel on considere l'image
- *  visuellement degeneree (peu lisible). Cas typique : Catalogue E dense ou
- *  template compact ou specsXLeft est proche du nameSpan. */
+/** Minimum image width threshold (pt) below which the image is considered
+ *  visually degenerate (poorly legible). Typical case: dense Catalogue E or a
+ *  compact template where specsXLeft is close to the nameSpan. */
 const IMAGE_MIN_VISIBLE_WIDTH = 60;
-/** Seuil minimum hauteur image (pt) en deca duquel on considere l'image
- *  visuellement degeneree (bloc trop court). */
+/** Minimum image height threshold (pt) below which the image is considered
+ *  visually degenerate (block too short). */
 const IMAGE_MIN_VISIBLE_HEIGHT = 60;
 
 export interface DegenerateImageInfo {
@@ -946,28 +942,28 @@ export function resetDegenerateImages(): void {
 
 function computeImageBbox(block: ProductBlock, _ctx: SubstituteContext): Bbox {
   const xLeftZone = block.nameSpan.bbox[0];
-  // Guard : sur templates compacts, specsXLeft peut etre <= nameSpan.bbox[0]
-  // → bbox degeneree x1 < x0 → PDFium reçoit une matrice negative.
+  // Guard: on compact templates, specsXLeft may be <= nameSpan.bbox[0] →
+  // degenerate bbox x1 < x0 → PDFium receives a negative matrix.
   const xRightZone = Math.max(xLeftZone + 20, block.specsXLeft - 10);
   const headerBottom =
     (block.colorSpan ? block.colorSpan.bbox[3] : block.nameSpan.bbox[3]) + 12;
   const yTopZone = Math.max(block.yTop + 8, headerBottom);
-  // Bottom : zone du bloc complet, PLAFONNEE a 320pt pour homogeneiser les
-  // tailles d'image entre blocs. Sinon le dernier bloc de la page prend
-  // toute la place jusqu'au footer (~440pt), tandis qu'un bloc au milieu
-  // est limite par le bloc suivant (~330pt) → asymetrie visible.
+  // Bottom: the whole block's zone, CAPPED at 320pt to homogenize image sizes
+  // across blocks. Otherwise the last block of the page takes all the space
+  // down to the footer (~440pt), while a block in the middle is limited by the
+  // next block (~330pt) → visible asymmetry.
   const yBotZoneMax = block.yBottom - 6;
-  // Plafond adaptatif : 50% de la hauteur de page (vs 40% trop conservateur
-  // qui rendait les images trop petites sur les pages 1-produit ou 2-produits
-  // avec beaucoup d'espace dispo). Sur A4 portrait (842pt) → 421pt.
+  // Adaptive cap: 50% of the page height (vs 40% too conservative which made
+  // the images too small on 1-product or 2-product pages with a lot of
+  // available space). On A4 portrait (842pt) → 421pt.
   const maxH = _ctx.pageHeight * 0.5;
   const targetH = Math.min(yBotZoneMax - yTopZone, maxH);
-  // Clamp : si le bloc fait < 30pt de haut, yTopZone+30 deborderait hors
-  // de yBotZoneMax → l'image chevauche le bloc suivant.
+  // Clamp: if the block is < 30pt tall, yTopZone+30 would overflow past
+  // yBotZoneMax → the image overlaps the next block.
   const yBotZone = Math.min(yTopZone + Math.max(targetH, 30), yBotZoneMax);
   const bbox: Bbox = [xLeftZone, yTopZone, xRightZone, yBotZone];
 
-  // Audit : si la bbox finale est visuellement degeneree, on l'enregistre.
+  // Audit: if the final bbox is visually degenerate, we record it.
   const w = xRightZone - xLeftZone;
   const h = yBotZone - yTopZone;
   const isNarrow = w < IMAGE_MIN_VISIBLE_WIDTH;
@@ -990,7 +986,7 @@ function computeImageBbox(block: ProductBlock, _ctx: SubstituteContext): Bbox {
   return bbox;
 }
 
-/** Efface le contenu d'un bloc (cas "produit manquant"). Resultat : zone blanche. */
+/** Erases a block's content ("missing product" case). Result: white zone. */
 function eraseBlock(block: ProductBlock, ctx: SubstituteContext): Operation[] {
   const ops: Operation[] = [];
   const eraseRight = ctx.pageWidth - ctx.profile.ribbonMargin;
@@ -999,28 +995,28 @@ function eraseBlock(block: ProductBlock, ctx: SubstituteContext): Operation[] {
   const yBot = block.yBottom + 4;
   const blockZone: Bbox = [eraseLeft, yTop, eraseRight, yBot];
   ops.push({ op: 'erase_rect', bbox: blockZone });
-  // Image principale aussi
+  // Main image too
   if (block.mainImageBbox) {
     ops.push({ op: 'erase_rect', bbox: block.mainImageBbox });
   }
-  // Variantes images aussi
+  // Variant images too
   for (const v of block.variantImages) {
     ops.push({ op: 'erase_rect', bbox: v });
   }
-  // Pictos vectoriels qui debordent du bloc (cercles promo, badges) :
-  // l'erase_rect global couvre l'interieur du bloc mais un picto peut
-  // depasser (ex cercle "NOUVEAUTE" ancre en haut-gauche). On efface
-  // individuellement ceux qui intersectent la zone bloc.
+  // Vector pictos that spill out of the block (promo circles, badges): the
+  // global erase_rect covers the inside of the block but a picto may stick out
+  // (e.g. "NOUVEAUTE" circle anchored top-left). We individually erase those
+  // that intersect the block zone.
   if (ctx.decorationVectors) {
     for (const v of ctx.decorationVectors) {
       if (!intersects(v, blockZone)) continue;
-      // Skip structurels (rubans pleine largeur)
+      // Skip structural ones (full-width ribbons)
       const w = v[2] - v[0];
       if (w > ctx.pageWidth * 0.7) continue;
       ops.push({ op: 'erase_rect', bbox: padBbox(v, 1) });
     }
   }
-  // Bitmaps residuels dans le bloc (badges NF, pictos) sauf image principale
+  // Residual bitmaps in the block (NF badges, pictos) except the main image
   if (ctx.rawImages) {
     const keepBboxes: Bbox[] = [];
     if (block.mainImageBbox) keepBboxes.push(block.mainImageBbox);
@@ -1034,27 +1030,27 @@ function eraseBlock(block: ProductBlock, ctx: SubstituteContext): Operation[] {
   return ops;
 }
 
-// ─── Substitutions atomiques ─────────────────────────────────────────────────
+// ─── Atomic substitutions ─────────────────────────────────────────────────────
 
 interface InsertAtSpanOptions {
-  /** Force le bord droit de la bbox d'erase a ce X. Utile pour le nom
-   *  produit (efface la ligne decorative horizontale du template). */
+  /** Forces the right edge of the erase bbox to this X. Useful for the product
+   *  name (erases the template's horizontal decorative line). */
   eraseToRight?: number;
 }
 
 /**
- * Insert_text au meme endroit qu'un span existant. Extension de bbox a
- * droite si le nouveau texte est plus long, ou si eraseToRight est fourni
- * (force l'erase plus loin pour absorber des elements decoratifs).
+ * Insert_text at the same place as an existing span. Extends the bbox to the
+ * right if the new text is longer, or if eraseToRight is provided (forces the
+ * erase further to absorb decorative elements).
  */
 function insertAtSpan(
   span: TextSpan,
   newText: string,
   options: InsertAtSpanOptions = {},
 ): OpInsertText {
-  // P0.4 : translate les glyphes exotiques (smart quotes, ligatures, …)
-  // en ASCII proche. Sans ça, Helvetica fallback (font name non trouvee)
-  // affiche `.notdef` (rectangle vide) sur '–', 'œ', '…', etc.
+  // P0.4: translate the exotic glyphs (smart quotes, ligatures, …) into
+  // nearest ASCII. Without it, the Helvetica fallback (font name not found)
+  // shows `.notdef` (empty rectangle) on '–', 'œ', '…', etc.
   const safe = safeText(newText);
   const oldLen = span.text.trim().length;
   const newLen = safe.length;
@@ -1070,18 +1066,18 @@ function insertAtSpan(
     text: safe,
     font: span.font,
     size: span.size,
-    // safeTextColor : bascule au noir si span.color est tres clair (cas
-    // Catalogue C ou` les noms produit sont en blanc sur cartouche colore qui
-    // est efface par le erase fond bloc → texte blanc invisible).
+    // safeTextColor: switches to black if span.color is very light (Catalogue
+    // C case where the product names are white on a colored cartouche that is
+    // erased by the block background erase → invisible white text).
     color: safeTextColor(span.color),
   };
 }
 
 /**
- * Substitue color + ref. 3 cas :
- *  1. 2 spans distincts (color + ref separes) → 2 inserts independants
- *  2. 1 seul span detecte (cas "Chromé 304740 4050955" en 1 span) → 1 insert combine
- *  3. Aucun span → fallback sous le nom
+ * Substitutes color + ref. 3 cases:
+ *  1. 2 distinct spans (separate color + ref) → 2 independent inserts
+ *  2. a single detected span (case "Chromé 304740 4050955" in 1 span) → 1 combined insert
+ *  3. no span → fallback under the name
  */
 function substituteColorAndRef(
   block: ProductBlock,
@@ -1093,14 +1089,14 @@ function substituteColorAndRef(
   const newRef = (product.ref ?? '').trim();
   if (!newColor && !newRef) return ops;
 
-  // Cas 1 : 2 spans distincts
+  // Case 1: 2 distinct spans
   if (block.colorSpan && block.refSpan && block.colorSpan !== block.refSpan) {
-    // Erase EXPLICITE qui couvre toute la zone color+ref AVANT les inserts.
-    // Sinon l'auto-erase blanc de chaque insert_text laisse un trou entre
-    // la fin de l'insert color (auto-erase blanc x0..x_color_end) et le
-    // debut de l'insert ref (auto-erase blanc refX..refX_end), dans lequel
-    // l'ancien debut du ref template ("304740") reste visible (vu "₃₀"
-    // entre "Chromé" et la nouvelle ref).
+    // EXPLICIT erase covering the whole color+ref zone BEFORE the inserts.
+    // Otherwise each insert_text's white auto-erase leaves a gap between the
+    // end of the color insert (white auto-erase x0..x_color_end) and the start
+    // of the ref insert (white auto-erase refX..refX_end), in which the old
+    // start of the template ref ("304740") stays visible (seen as "₃₀"
+    // between "Chromé" and the new ref).
     const colorWidth = newColor
       ? newColor.length * block.colorSpan.size * TEXT_WIDTH_COEFS.upper
       : 0;
@@ -1129,7 +1125,7 @@ function substituteColorAndRef(
     return ops;
   }
 
-  // Cas 2 : un seul span combine
+  // Case 2: a single combined span
   const singleSpan = block.colorSpan ?? block.refSpan;
   if (singleSpan) {
     const combined = [newColor, newRef].filter(Boolean).join('  ');
@@ -1137,12 +1133,12 @@ function substituteColorAndRef(
     return ops;
   }
 
-  // Cas 3 : fallback sous le nom
-  // Gap eleve (= size + 6) pour eviter un overlap si le render C++ interprete
-  // bbox[1] comme TOP du texte vs baseline (cas observe sur Catalogue C : la ref
-  // remontait dans le nom → "AG2236TAR 900" au lieu de "AQUASTAR 900").
-  // En plus on emet un erase explicite de la zone sous le nom AVANT l'insert
-  // pour garantir qu'aucun residu template n'apparait derriere la ref.
+  // Case 3: fallback under the name
+  // High gap (= size + 6) to avoid an overlap if the C++ render interprets
+  // bbox[1] as the TOP of the text vs the baseline (case observed on Catalogue
+  // C: the ref rose up into the name → "AG2236TAR 900" instead of "AQUASTAR
+  // 900"). On top of that we emit an explicit erase of the zone under the name
+  // BEFORE the insert to ensure no template residue appears behind the ref.
   const fallbackText = [newColor, newRef].filter(Boolean).join('  ');
   if (!fallbackText.trim()) return ops;
   const nameBbox = block.nameSpan.bbox;
@@ -1151,8 +1147,8 @@ function substituteColorAndRef(
   const fbY1 = fbY0 + fbSize + 4.0;
   const fbX0 = nameBbox[0];
   const fbX1 = nameBbox[2] + 150;
-  // Erase explicite SOUS le nom (separe le nom de la ref visuellement et
-  // efface tout span template residuel dans cette zone).
+  // Explicit erase UNDER the name (visually separates the name from the ref
+  // and erases any residual template span in this zone).
   ops.push({
     op: 'erase_rect',
     bbox: [fbX0 - 2, nameBbox[3] + 2, fbX1, fbY1 + 2],
@@ -1168,17 +1164,17 @@ function substituteColorAndRef(
   return ops;
 }
 
-// ─── Helper largeur texte ────────────────────────────────────────────────────
+// ─── Text width helper ────────────────────────────────────────────────────────
 
 /**
- * Coefficients de largeur pour estimateTextWidth.
- * UPPER = majuscules tabulaires (titres, refs). DIGITS = chiffres. MIXED =
- * fallback minuscules/mixed. Ces valeurs sont calibrees sur Almanach-* mais
- * tiennent pour la plupart des fonts sans-serif a corps regulier.
+ * Width coefficients for estimateTextWidth.
+ * UPPER = tabular uppercase (titles, refs). DIGITS = digits. MIXED =
+ * lowercase/mixed fallback. These values are calibrated on Almanach-* but hold
+ * for most regular-weight sans-serif fonts.
  *
- * Si tu changes ces coefs, vérifie le rendu sur :
- *   - noms produits longs (estimateTextWidth dans reflowSpecs)
- *   - extension naturelle dans insertAtSpan ligne ~360
+ * If you change these coefs, check the render on:
+ *   - long product names (estimateTextWidth in reflowSpecs)
+ *   - the natural extension in insertAtSpan around line ~360
  */
 export const TEXT_WIDTH_COEFS = {
   upper: 0.65,

@@ -6,47 +6,47 @@ import { claudeColumnMap } from './claudeColumnMapper';
 import { claudeMatchAssets } from './claudeAssetMatcher';
 import { stripAccents } from '../v2/engine/textNormalize';
 
-// Priorite NAME : "designation" (souvent le vrai nom commercial) avant juste "code"/"ref"
-// Multilingue FR/EN/DE/ES/IT/PT/NL/SE/NO/DK/PL
+// NAME priority: "designation" (often the real commercial name) before just "code"/"ref"
+// Multilingual FR/EN/DE/ES/IT/PT/NL/SE/NO/DK/PL
 const NAME_PATTERNS = [
   /^designation/i,
   /^(nom|name|titre|title|libelle.*produit|libelle.*designation)/i,
   /^(product|produit|label|bezeichnung|denominacion|denominación|denomination)/i,
   // IT/PT/NL/SE/PL
   /^(prodotto|nome|articolo|descrizione|descrição|descripcion|descripción|description|produkt|produkter|namn|nazwa|nazwa.*produktu)/i,
-  // NO/DK : "navn" (nom), "vare" (article), "betegnelse" (designation)
+  // NO/DK: "navn" (name), "vare" (article), "betegnelse" (designation)
   /^(navn|vare|varenavn|betegnelse|beteckning|varunamn)/i,
-  // Variantes EN courantes : item name, product name, display name
+  // Common EN variants: item name, product name, display name
   /^(item.*name|product.*name|item.*title|item.*description|display.*name|short.*name)/i,
-  // Variantes ERP : intitule (FR), Bezeichnung (DE déjà), short_desc
+  // ERP variants: intitule (FR), Bezeichnung (DE already), short_desc
   /^(intitule|short.?desc(ription)?|long.?desc(ription)?)/i,
 ];
-// SKU multilingue : codes ERP / refs varient selon les pays
+// SKU multilingual: ERP codes / refs vary by country
 const SKU_RE = /(sku|ref|reference|referenz|referencia|riferimento|referência|code|codigo|código|id\b|ean|gencod|gtin|isbn|article|artikel|articulo|artículo|artigo|barcode|kod|nr\b|numer|nummer|item.*code|product.*code|art\.?\s?nr|varenr|varenummer|artikelnr|model|modello|modelo|modèle|modell|part.?(number|no|nr)|p\/n)/i;
-/** Pattern de colonne "couleur / finition / variante" — multilingue.
- *  FR : couleur, finition, teinte, coloris, tonalite
- *  EN : color, colour, finish, hue, shade, tint
- *  DE : farbe, farbton, ausfuhrung, ausführung
- *  ES : color, tonalidad, acabado, matiz
- *  IT : colore, finitura, tonalita, tonalità, tinta
- *  PT : cor, acabamento, tonalidade
- *  NO/DK : farve
- *  SE : färg, farg
- *  PL : kolor
- *  Prefixe numerique tolere (ex "5 Couleur" pour codes ERP). */
+/** "Color / finish / variant" column pattern — multilingual.
+ *  FR: couleur, finition, teinte, coloris, tonalite
+ *  EN: color, colour, finish, hue, shade, tint
+ *  DE: farbe, farbton, ausfuhrung, ausführung
+ *  ES: color, tonalidad, acabado, matiz
+ *  IT: colore, finitura, tonalita, tonalità, tinta
+ *  PT: cor, acabamento, tonalidade
+ *  NO/DK: farve
+ *  SE: färg, farg
+ *  PL: kolor
+ *  Numeric prefix tolerated (e.g. "5 Couleur" for ERP codes). */
 const DEFAULT_COLOR_PATTERN = /^(\d+\s+)?(couleur|color|colour|finition|finish|teinte|coloris|hue|shade|tint|tonalite|tonalité|farbe|farbton|ausfuhrung|ausführung|tonalidad|acabado|matiz|colore|finitura|tonalita|tonalità|tinta|cor\b|acabamento|tonalidade|farve|färg|farg|kolor)/i;
-// IMAGE multilingue : noms de colonnes pour photo / visuel produit
-// FR : image, photo, visuel, illustration, vignette, miniature
-// EN : image, photo, picture, img, thumbnail, snapshot, cover, url
-// DE : bild, abbildung, grafik
-// ES : imagen, foto
-// IT : immagine, fotografia
-// PT : imagem, foto
-// NO/DK : bilde / billede
-// PL : obraz, zdjecie
+// IMAGE multilingual: column names for product photo / visual
+// FR: image, photo, visuel, illustration, vignette, miniature
+// EN: image, photo, picture, img, thumbnail, snapshot, cover, url
+// DE: bild, abbildung, grafik
+// ES: imagen, foto
+// IT: immagine, fotografia
+// PT: imagem, foto
+// NO/DK: bilde / billede
+// PL: obraz, zdjecie
 const IMAGE_RE = /^(image|photo|picture|img|visuel|illustration|bild|bilde|billede|imagen|immagine|imagem|foto|abbildung|grafik|fotografia|miniature|thumbnail|vignette|snapshot|cover|obraz|zdjecie|image[_\s-]?url|photo[_\s-]?url|product[_\s-]?image)s?$/i;
-// Patterns de fallback (heuristique simple sans inspecter les data) - utilisés
-// uniquement quand la détection par cardinalité ne donne pas de résultat.
+// Fallback patterns (simple heuristic without inspecting the data) - used only
+// when the cardinality-based detection yields no result.
 const DEFAULT_SECTION_PATTERNS = [
   /libelle[_ ]?ssfamille/i,
   /libelle[_ ]?sfamille/i,
@@ -62,30 +62,30 @@ const DEFAULT_SUBFAMILY_PATTERNS = [
   /^(sous[_ ]?famille|subfamille|subfamily)$/i,
 ];
 
-/** Mots-clés pour détecter une colonne "catégorie" (à tout niveau de la
- *  hiérarchie). Volontairement large : couvre famille/family/univers/categorie/
+/** Keywords to detect a "category" column (at any level of the hierarchy).
+ *  Deliberately broad: covers famille/family/univers/categorie/
  *  rayon/gamme/department/domaine/type/classification/groupe/section...
- *  Indépendant de la langue + des conventions de nommage (ssfamille, sub-category,
+ *  Language-independent + naming-convention-independent (ssfamille, sub-category,
  *  s_famille, type_produit, code_famille, libellé_produit, etc.). */
 const CATEGORY_KEYWORD_RE = /famille|family|familie|familia|univers|category|categori|kategorie|rayon|gamme|rubrik|abteilung|seccion|sección|section|department|departement|domaine|domain|classification|groupe|gruppe|grupo|type[_ ]?produit|product[_ ]?type|kind|sorte|categoria|categoría|gamma|chapitre|partie|niveau|collection|colecao|colección|collezione|kollektion|ligne|range|series|serie|seria|avdelning|kategori|kategoria/i;
-/** Min de valeurs distinctes pour considérer une colonne comme catégorie
- *  utile. 1 = on accepte les niveaux mono-valeur (ex famille unique
- *  "SANITAIRE" dans un catalogue mono-département) ; ils seront collapsed
- *  par groupIntoHierarchy si redondants pour l'affichage. */
+/** Minimum distinct values to consider a column a useful category. 1 = we
+ *  accept single-value levels (e.g. a unique family "SANITAIRE" in a
+ *  single-department catalog); they will be collapsed by groupIntoHierarchy
+ *  if redundant for display. */
 const CATEGORY_MIN_DISTINCT = 1;
-/** Max de valeurs distinctes (au-delà = trop spécifique, c'est plutôt le nom
- *  du produit ou un code unique). */
+/** Maximum distinct values (beyond that = too specific, it's more likely the
+ *  product name or a unique code). */
 const CATEGORY_MAX_DISTINCT = 200;
 
-/** Détecte la hiérarchie des colonnes catégorie à partir des données :
- *  1. Sélectionne les colonnes dont le nom matche CATEGORY_KEYWORD_RE
- *  2. Compte les valeurs distinctes par colonne
- *  3. Filtre les colonnes avec une cardinalité utile (2 à 200 valeurs)
- *  4. Trie par cardinalité croissante (peu de valeurs = niveau haut)
- *  5. Assigne les 3 premières à family / subFamily / section
+/** Detects the category column hierarchy from the data:
+ *  1. Selects the columns whose name matches CATEGORY_KEYWORD_RE
+ *  2. Counts the distinct values per column
+ *  3. Filters the columns with a useful cardinality (2 to 200 values)
+ *  4. Sorts by ascending cardinality (few values = high level)
+ *  5. Assigns the first 3 to family / subFamily / section
  *
- *  Fonctionne pour n'importe quel catalogue sans hardcoder les noms de
- *  colonnes type ssfamille. Retourne {} si aucune colonne catégorie détectée. */
+ *  Works for any catalog without hardcoding column names like ssfamille.
+ *  Returns {} if no category column is detected. */
 function detectCategoryHierarchy(
   headers: string[],
   rows: Record<string, string>[],
@@ -93,7 +93,7 @@ function detectCategoryHierarchy(
   const candidates = headers.filter((h) => CATEGORY_KEYWORD_RE.test(h));
   if (candidates.length === 0 || rows.length === 0) return {};
 
-  // Cardinalité (nombre de valeurs distinctes non vides) par colonne candidate
+  // Cardinality (number of distinct non-empty values) per candidate column
   const cardinality = new Map<string, number>();
   for (const col of candidates) {
     const vals = new Set<string>();
@@ -104,51 +104,51 @@ function detectCategoryHierarchy(
     cardinality.set(col, vals.size);
   }
 
-  // Filtre : on garde uniquement les colonnes "utiles" comme catégorie
+  // Filter: we keep only the "useful" columns as a category
   const useful = candidates.filter((c) => {
     const n = cardinality.get(c) ?? 0;
     return n >= CATEGORY_MIN_DISTINCT && n <= CATEGORY_MAX_DISTINCT;
   });
   if (useful.length === 0) return {};
 
-  // Tri par cardinalité croissante : moins de valeurs = plus haut dans
-  // la hiérarchie (ex: 3 familles > 12 sfamilles > 50 ssfamilles)
+  // Sort by ascending cardinality: fewer values = higher in the hierarchy
+  // (e.g. 3 families > 12 subfamilies > 50 sub-subfamilies)
   useful.sort((a, b) => (cardinality.get(a) ?? 0) - (cardinality.get(b) ?? 0));
 
-  // Assigne selon le nombre de niveaux utiles trouvés
+  // Assign according to the number of useful levels found
   if (useful.length === 1) return { section: useful[0] };
   if (useful.length === 2) return { family: useful[0], section: useful[1] };
-  // 3+ niveaux : on garde les 3 premiers (family/subFamily/section)
+  // 3+ levels: we keep the first 3 (family/subFamily/section)
   return { family: useful[0], subFamily: useful[1], section: useful[2] };
 }
-/** Colonnes XLSX "techniques" a ignorer dans les specs (= ne pas afficher
- *  comme cle:valeur sur la fiche produit). Origine des patterns ERP :
- *   - bdd_*, date_maj, date_creation, date_modification : conventions
- *     observees sur des exports d'ERP francais (CEGID, Sage, EBP, etc.).
- *     "bdd" = base de donnees ; "maj" = mise a jour.
- *   - libelle famille/sfamille, gencod : naming Catalogue A (catalogue
- *     de reference du pipeline V2). Generalise aux conventions FR.
- *   - created_at, updated_at : conventions ORM modernes (Rails, Laravel,
+/** "Technical" XLSX columns to ignore in the specs (= don't display as
+ *  key:value on the product sheet). Origin of the ERP patterns:
+ *   - bdd_*, date_maj, date_creation, date_modification: conventions
+ *     observed on French ERP exports (CEGID, Sage, EBP, etc.).
+ *     "bdd" = database; "maj" = update.
+ *   - libelle famille/sfamille, gencod: Catalogue A naming (reference catalog
+ *     of the V2 pipeline). Generalized to FR conventions.
+ *   - created_at, updated_at: modern ORM conventions (Rails, Laravel,
  *     Symfony, Django).
  *
- *  Couvre par categorie :
- *   - Codes ERP internes : bdd_*, attribut, statut, code produit
- *   - Niveaux famille deja remontes en hierarchie : libelle famille/sfamille
- *   - Codes barres deja remontes en ref : gencod, gtin, ean, upc, isbn
- *   - Identifiants techniques : id, uid, uuid, guid
- *   - Marketing/marque (utilise ailleurs) : marque, nf
- *   - Provenance / supply chain (interne) : fournisseur, supplier, vendor,
+ *  Covered by category:
+ *   - Internal ERP codes: bdd_*, attribut, statut, code produit
+ *   - Family levels already lifted into the hierarchy: libelle famille/sfamille
+ *   - Barcodes already lifted into ref: gencod, gtin, ean, upc, isbn
+ *   - Technical identifiers: id, uid, uuid, guid
+ *   - Marketing/brand (used elsewhere): marque, nf
+ *   - Provenance / supply chain (internal): fournisseur, supplier, vendor,
  *     stock, warehouse, entrepot
- *   - Etat / cycle de vie : obsolete, archive, deleted, inactif
- *   - Meta : version, revision, created_at, updated_at, date_*
+ *   - State / lifecycle: obsolete, archive, deleted, inactif
+ *   - Meta: version, revision, created_at, updated_at, date_*
  *
- *  Configurable via options.technicalKeyPattern (override complet). */
+ *  Configurable via options.technicalKeyPattern (full override). */
 const DEFAULT_TECHNICAL_KEY_PATTERN =
   /^(bdd[_.]|libelle[_ ]?(s?s)?famille|sfamille|ssfamille|gencod|gtin|ean|upc|isbn|attribut|statut|marque$|nf$|code\s?produit$|id$|uid$|uuid$|guid$|fournisseur$|supplier$|vendor$|stock$|warehouse$|entrepot$|obsolete$|archive$|deleted$|inactif$|version$|revision$|rev$|created_at$|updated_at$|date_creation$|date_modification$|date_maj$)/i;
 const DEFAULT_ASSET_STRIP_PATTERN = /^\d+-[a-z0-9]{6}-/i;
-/** Retire un prefixe numerique court (codes attributs ERP type "538 Longueur").
- *  Si non applicable a ton catalogue, override avec un pattern qui ne matche
- *  rien (ex: "^$") pour preserver les prefixes legitimes. */
+/** Removes a short numeric prefix (ERP attribute codes like "538 Longueur").
+ *  If not applicable to your catalog, override with a pattern that matches
+ *  nothing (e.g. "^$") to preserve legitimate prefixes. */
 const DEFAULT_HUMANIZE_STRIP_PATTERN = /^\d{1,4}\s+/;
 
 export interface FamilyRibbonRule {
@@ -156,9 +156,9 @@ export interface FamilyRibbonRule {
   keywords: string[];
 }
 
-/** Mappe une "famille" brute vers le terme du ruban vertical via mapping ordonne.
- *  Aucun defaut : si aucun mapping fourni, on retourne la famille brute en lower
- *  (le pipeline Python tentera quand meme un match approximatif). */
+/** Maps a raw "family" to the vertical ribbon term via an ordered mapping.
+ *  No default: if no mapping is provided, we return the raw family in lower
+ *  case (the Python pipeline will still attempt an approximate match). */
 function familyToRibbon(raw: string, map: FamilyRibbonRule[] = []): string | undefined {
   if (!raw) return undefined;
   const f = stripAccents(raw).toLowerCase();
@@ -170,58 +170,58 @@ function familyToRibbon(raw: string, map: FamilyRibbonRule[] = []): string | und
   }
   return raw.toLowerCase();
 }
-/** Valeurs "vides" ou non-informatives à filtrer côté specs.
- *  Multilingue : FR/EN/DE/ES/IT/PT + variantes ERP courantes.
- *  Note : "oui" est filtré car indique présence sans plus d'info (l'absence
- *  ou la spec entière est plus parlante que "oui" répété).
- *  Insensible casse + ponctuation finale (cleanValue strip avant test).
+/** "Empty" or non-informative values to filter out on the specs side.
+ *  Multilingual: FR/EN/DE/ES/IT/PT + common ERP variants.
+ *  Note: "oui" is filtered because it indicates presence with no further info
+ *  (absence or the entire spec is more telling than a repeated "oui").
+ *  Case-insensitive + trailing punctuation (cleanValue strips before testing).
  *
- *  Variantes couvertes :
- *  - Refus : non/no/nein/no(IT/ES)/não
- *  - Affirmation degénérante : oui/yes/ja/si/sim (filtre "oui répété")
- *  - Non applicable : n/a, n.a., nc, nd, n.d., ns, n.s., na
- *  - Vide : vide/empty/null/nil/none/keine/nichts/niente/nessuno/ninguno/nenhum
- *  - Inconnu : inconnu/unknown/unbekannt/desconocido/sconosciuto
- *  - Néant : neant/néant/sans/ohne/senza/sin/sem
- *  - À définir : tbd/tba/to.?be.?(defined|announced)/var/variable
- *  - Annulé : void/cancelled/storno/anulado
- *  - Caractères seuls : "-", "—", "–", "0", "x", "?", "." */
+ *  Variants covered:
+ *  - Refusal: non/no/nein/no(IT/ES)/não
+ *  - Degenerate affirmation: oui/yes/ja/si/sim (filters "repeated oui")
+ *  - Not applicable: n/a, n.a., nc, nd, n.d., ns, n.s., na
+ *  - Empty: vide/empty/null/nil/none/keine/nichts/niente/nessuno/ninguno/nenhum
+ *  - Unknown: inconnu/unknown/unbekannt/desconocido/sconosciuto
+ *  - Nothing: neant/néant/sans/ohne/senza/sin/sem
+ *  - To be defined: tbd/tba/to.?be.?(defined|announced)/var/variable
+ *  - Cancelled: void/cancelled/storno/anulado
+ *  - Single characters: "-", "—", "–", "0", "x", "?", "." */
 const NON_INFORMATIVE_VALUE_RE =
   /^(non|no|nein|nao|não|n\/?a|n\.a\.?|na|nc|nd|n\.d\.?|ns|n\.s\.?|none|null|nil|[-—–‐]+|vide|oui|yes|ja|si|sim|empty|inconnu|unknown|unbekannt|desconocido|sconosciuto|neant|néant|sans|ohne|senza|sin|sem|keine|kein|nicht|nichts|niente|nessuno|nessuna|ninguno|ninguna|nenhum|nenhuma|tbd|tba|var|variable|void|cancelled|storno|anulado|0|x|\?+|\.+)$/i;
-/** Extensions image supportees pour les assets produit.
+/** Image extensions supported for product assets.
  *
- *  Niveau 1 (rendu PyMuPDF natif) : png/jpg/jpeg/gif/webp.
- *  Niveau 2 (decode via Pillow standard) : tiff/tif/bmp/jfif/ico.
- *  Niveau 3 (formats modernes, decode via pillow-heif / pillow-avif) :
- *    heic/heif/avif. Acceptes en input — si le decode echoue cote Python,
- *    le placeholder image_missing est rendu.
+ *  Level 1 (native PyMuPDF rendering): png/jpg/jpeg/gif/webp.
+ *  Level 2 (decode via standard Pillow): tiff/tif/bmp/jfif/ico.
+ *  Level 3 (modern formats, decode via pillow-heif / pillow-avif):
+ *    heic/heif/avif. Accepted as input — if the decode fails on the Python
+ *    side, the image_missing placeholder is rendered.
  *
- *  La liste est volontairement permissive : mieux vaut tenter qu'ignorer
- *  un fichier que l'utilisateur a fourni. */
+ *  The list is deliberately permissive: better to try than to ignore a file
+ *  the user provided. */
 const IMAGE_EXTS = new Set([
-  // Niveau 1 (always supported)
+  // Level 1 (always supported)
   '.png', '.jpg', '.jpeg', '.gif', '.webp',
-  // Niveau 2 (Pillow standard)
+  // Level 2 (Pillow standard)
   '.tiff', '.tif', '.bmp', '.jfif', '.ico',
-  // Niveau 3 (best-effort decode)
+  // Level 3 (best-effort decode)
   '.heic', '.heif', '.avif',
 ]);
 const SCHEMA_EXTS = new Set(['.pdf']);
 
-/** Limites taille ZIP : refus avant alloc pour eviter d'OOM AdmZip
- *  (chargement en memoire). Audit #9 : hisses au niveau module. */
+/** ZIP size limits: reject before alloc to avoid OOM-ing AdmZip (in-memory
+ *  loading). Audit #9: lifted to module level. */
 const MAX_ZIP_COMPRESSED_BYTES = 300 * 1024 * 1024; // 300 MB
 const MAX_ZIP_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 
-/** Ratio minimum de produits sans image matchee pour declencher le smart
- *  matching Claude (audit #13). Sous ce seuil, le matching deterministe
- *  par prefix/slug est suffisant — pas la peine de payer un appel LLM.
- *  Au-dessus, on demande a Claude d'aligner les noms produit↔asset par
- *  similarite semantique (utile pour assets nommes "produit_premium_v2.jpg"
- *  vs ref XLSX "ABC123"). */
+/** Minimum ratio of products without a matched image to trigger the Claude
+ *  smart matching (audit #13). Below this threshold, the deterministic
+ *  prefix/slug matching is sufficient — no point paying for an LLM call.
+ *  Above it, we ask Claude to align the product↔asset names by semantic
+ *  similarity (useful for assets named "produit_premium_v2.jpg" vs XLSX ref
+ *  "ABC123"). */
 const SMART_MATCH_TRIGGER_UNMATCHED_RATIO = 0.3;
 
-// stripAccents : voir v2/engine/textNormalize.ts (factorise depuis 4 copies,
+// stripAccents: see v2/engine/textNormalize.ts (factored out from 4 copies,
 // audit #6).
 
 function pickColumn(headers: string[], re: RegExp): string | undefined {
@@ -236,11 +236,11 @@ function pickColumnByPatterns(headers: string[], patterns: RegExp[]): string | u
   return undefined;
 }
 
-/** Abbréviations courantes dans les XLSX → forme étendue. Insensible casse.
- *  Match en tant que mot entier (boundary `\b`) pour éviter les faux positifs
- *  ("temp" matche "temp" et "TEMP" mais pas "tempête"). */
+/** Common abbreviations in XLSX → expanded form. Case-insensitive.
+ *  Matches as a whole word (boundary `\b`) to avoid false positives
+ *  ("temp" matches "temp" and "TEMP" but not "tempête"). */
 const ABBREVIATION_MAP: { abbr: RegExp; expanded: string }[] = [
-  // FR : dimensionnel
+  // FR: dimensional
   { abbr: /\bdim\b/gi, expanded: 'Dimensions' },
   { abbr: /\bdimens\b/gi, expanded: 'Dimensions' },
   { abbr: /\blong\b/gi, expanded: 'Longueur' },
@@ -254,7 +254,7 @@ const ABBREVIATION_MAP: { abbr: RegExp; expanded: string }[] = [
   { abbr: /\bpds\b/gi, expanded: 'Poids' },
   { abbr: /\bvol\b/gi, expanded: 'Volume' },
   { abbr: /\bsurf\b/gi, expanded: 'Surface' },
-  // FR : performance / mecanique
+  // FR: performance / mechanical
   { abbr: /\bdeb\b/gi, expanded: 'Débit' },
   { abbr: /\bdebit\b/gi, expanded: 'Débit' },
   { abbr: /\btemp\b/gi, expanded: 'Température' },
@@ -268,7 +268,7 @@ const ABBREVIATION_MAP: { abbr: RegExp; expanded: string }[] = [
   { abbr: /\bvit\b/gi, expanded: 'Vitesse' },
   { abbr: /\bvitess\b/gi, expanded: 'Vitesse' },
   { abbr: /\bcap\b/gi, expanded: 'Capacité' },
-  // FR : produit
+  // FR: product
   { abbr: /\bmat\b/gi, expanded: 'Matière' },
   { abbr: /\bmatiere\b/gi, expanded: 'Matière' },
   { abbr: /\bcoul\b/gi, expanded: 'Couleur' },
@@ -280,7 +280,7 @@ const ABBREVIATION_MAP: { abbr: RegExp; expanded: string }[] = [
   { abbr: /\bnb\b/gi, expanded: 'Nombre' },
   { abbr: /\bqte\b/gi, expanded: 'Quantité' },
   { abbr: /\bqnte\b/gi, expanded: 'Quantité' },
-  // EN : dimensionnel (ajouts non conflictuels FR)
+  // EN: dimensional (non-conflicting additions to FR)
   { abbr: /\blen\b/gi, expanded: 'Length' },
   { abbr: /\bwid\b/gi, expanded: 'Width' },
   { abbr: /\bhgt\b/gi, expanded: 'Height' },
@@ -288,21 +288,21 @@ const ABBREVIATION_MAP: { abbr: RegExp; expanded: string }[] = [
   { abbr: /\bwgt\b/gi, expanded: 'Weight' },
   { abbr: /\bqty\b/gi, expanded: 'Quantity' },
   { abbr: /\bqnty\b/gi, expanded: 'Quantity' },
-  // Note : "min", "max", "moy", "avg" intentionnellement non expansés —
-  // ce sont des qualifiers ("Diam MAX", "Temp MIN") plutot que des keys
-  // principales, et leur expansion casserait des composes existants.
+  // Note: "min", "max", "moy", "avg" intentionally not expanded — these are
+  // qualifiers ("Diam MAX", "Temp MIN") rather than primary keys, and
+  // expanding them would break existing compounds.
 ];
 
-/** Cache des regex unicode-safe reconstruites (perf : evite de recompiler a
- *  chaque appel). Clé = source ASCII d'origine. */
+/** Cache of the rebuilt unicode-safe regexes (perf: avoids recompiling on
+ *  every call). Key = original ASCII source. */
 const UNICODE_ABBR_CACHE = new Map<string, RegExp>();
 
-/** Reconstruit une regex d'abreviation avec des frontieres UNICODE-aware.
- *  Le `\b` natif de JS est ASCII : il considere les lettres accentuees (è, é,
- *  à...) comme des NON-mots, donc `/\bdiam\b/` matche "diam" dans "diamètre"
- *  → bug "Diamètre"+"ètre" = "Diamètreètre". On remplace les `\b` par des
- *  lookaround sur \p{L}\p{N} (flag u) pour traiter les accents comme des
- *  lettres. Exporte pour test. */
+/** Rebuilds an abbreviation regex with UNICODE-aware boundaries.
+ *  JS's native `\b` is ASCII: it treats accented letters (è, é, à...) as
+ *  NON-word characters, so `/\bdiam\b/` matches "diam" inside "diamètre"
+ *  → bug "Diamètre"+"ètre" = "Diamètreètre". We replace the `\b` with
+ *  lookarounds on \p{L}\p{N} (flag u) to treat accents as letters. Exported
+ *  for testing. */
 export function toUnicodeBoundaryRegex(abbr: RegExp): RegExp {
   const cached = UNICODE_ABBR_CACHE.get(abbr.source);
   if (cached) { cached.lastIndex = 0; return cached; }
@@ -314,7 +314,7 @@ export function toUnicodeBoundaryRegex(abbr: RegExp): RegExp {
   return re;
 }
 
-/** Expand les abbréviations courantes dans une chaîne (sans toucher au reste). */
+/** Expands the common abbreviations in a string (without touching the rest). */
 export function expandAbbreviations(text: string): string {
   let out = text;
   for (const { abbr, expanded } of ABBREVIATION_MAP) {
@@ -323,22 +323,22 @@ export function expandAbbreviations(text: string): string {
   return out;
 }
 
-/** Humanise une cle de spec brute :
+/** Humanizes a raw spec key:
  *  "538 Longueur bras de douche" -> "LONGUEUR BRAS DE DOUCHE :"
- *  "538_Longueur"               -> "LONGUEUR :" (separateur ERP `_` normalize avant strip)
+ *  "538_Longueur"               -> "LONGUEUR :" (ERP separator `_` normalized before strip)
  *  "Mécanisme"                  -> "MÉCANISME :"
- *  "DEB_PRESS"                  -> "DÉBIT PRESSION :" (abbréviations expandées)
- *  Retire prefixes numeriques (codes attributs internes), met en majuscules,
- *  ajoute " :" en fin pour matcher le style des templates type Catalogue A.
+ *  "DEB_PRESS"                  -> "DÉBIT PRESSION :" (abbreviations expanded)
+ *  Removes numeric prefixes (internal attribute codes), uppercases, appends
+ *  " :" at the end to match the style of templates like Catalogue A.
  *
- *  ORDRE IMPORTANT : on remplace les separateurs ERP (`_`/`-`) par des
- *  espaces AVANT le strip prefix numerique. Sinon "538_Longueur" garde
- *  son "538" qui n'a pas d'espace apres (le strip pattern exige `\s+`). */
+ *  IMPORTANT ORDER: we replace the ERP separators (`_`/`-`) with spaces
+ *  BEFORE stripping the numeric prefix. Otherwise "538_Longueur" keeps its
+ *  "538" which has no space after it (the strip pattern requires `\s+`). */
 function humanizeKey(raw: string, stripPattern: RegExp = DEFAULT_HUMANIZE_STRIP_PATTERN): string {
   let k = raw.trim();
-  // 1. Separateurs ERP → espaces (avant strip pour exposer "538 X" au pattern)
+  // 1. ERP separators → spaces (before strip to expose "538 X" to the pattern)
   k = k.replace(/[_\-]+/g, ' ');
-  // 2. Strip prefix numerique court ("538 ")
+  // 2. Strip short numeric prefix ("538 ")
   k = k.replace(stripPattern, '');
   // 3. Expand abbreviations + normalize spaces
   k = expandAbbreviations(k);
@@ -347,10 +347,10 @@ function humanizeKey(raw: string, stripPattern: RegExp = DEFAULT_HUMANIZE_STRIP_
   return k.toUpperCase() + ' :';
 }
 
-/** Strip les quotes englobantes symetriques (', ", `, «», ‹›, “”) si elles
- *  encadrent toute la chaine. Utile pour XLSX ou CSV exportes avec quoting
- *  excessif ("'Inox'" devient "Inox", '«Eco»' devient "Eco").
- *  Conserve les quotes internes (ex Butée «Eco-stop» garde les guillemets). */
+/** Strips symmetric surrounding quotes (', ", `, «», ‹›, “”) if they wrap the
+ *  whole string. Useful for XLSX or CSV exported with excessive quoting
+ *  ("'Inox'" becomes "Inox", '«Eco»' becomes "Eco").
+ *  Keeps internal quotes (e.g. Butée «Eco-stop» keeps the guillemets). */
 function stripSurroundingQuotes(s: string): string {
   const QUOTE_PAIRS: Array<[string, string]> = [
     ["'", "'"], ['"', '"'], ['`', '`'],
@@ -359,7 +359,7 @@ function stripSurroundingQuotes(s: string): string {
   for (const [open, close] of QUOTE_PAIRS) {
     if (s.startsWith(open) && s.endsWith(close) && s.length >= open.length + close.length) {
       const inner = s.slice(open.length, s.length - close.length).trim();
-      // Retourne le contenu trim (peut etre vide pour "''" → "").
+      // Returns the trimmed content (can be empty for "''" → "").
       return inner;
     }
   }
@@ -370,11 +370,11 @@ function cleanValue(v: unknown): string | null {
   if (v === null || v === undefined) return null;
   let s = String(v).trim();
   if (!s) return null;
-  // Strip quotes englobantes (XLSX/CSV avec quoting excessif)
+  // Strip surrounding quotes (XLSX/CSV with excessive quoting)
   s = stripSurroundingQuotes(s);
   if (!s) return null;
-  // Strip ponctuation finale courante (".", "...", ",", ";", ":") avant
-  // test pour matcher "N/A.", "N.D.,", "tbd..." comme non-informatives.
+  // Strip common trailing punctuation (".", "...", ",", ";", ":") before the
+  // test to match "N/A.", "N.D.,", "tbd..." as non-informative.
   const stripped = s.replace(/[.,;:]+$/g, '').trim();
   if (!stripped) return null;
   if (NON_INFORMATIVE_VALUE_RE.test(stripped)) return null;
@@ -382,31 +382,31 @@ function cleanValue(v: unknown): string | null {
 }
 
 /**
- * Split une cell XLSX/CSV en plusieurs values logiques quand le contenu
- * utilise un separateur EXPLICITE (newline, pipe " | ", semi-colon " ; ").
- * Ne split PAS sur virgule simple ni sur "x" (ambigus avec dimensions
- * composites et noms composes).
+ * Splits an XLSX/CSV cell into several logical values when the content uses
+ * an EXPLICIT separator (newline, pipe " | ", semicolon " ; ").
+ * Does NOT split on a plain comma or on "x" (ambiguous with composite
+ * dimensions and compound names).
  *
- * Cas couverts :
+ * Cases covered:
  *   "60 cm\n80 cm\n100 cm"  → ["60 cm", "80 cm", "100 cm"]
  *   "Inox | Chrome | Doré"  → ["Inox", "Chrome", "Doré"]
  *   "5 ans ; 2 ans accessoires" → ["5 ans", "2 ans accessoires"]
- *   "Acier inox"            → ["Acier inox"]  (pas de separateur)
- *   "60x80x30"              → ["60x80x30"]    (pas de newline/pipe/semi)
- *   "Mat, brillant"         → ["Mat, brillant"] (virgule simple : ambigu)
+ *   "Acier inox"            → ["Acier inox"]  (no separator)
+ *   "60x80x30"              → ["60x80x30"]    (no newline/pipe/semi)
+ *   "Mat, brillant"         → ["Mat, brillant"] (plain comma: ambiguous)
  *
- * Filtre les segments vides ou non-informatives apres split. */
+ * Filters empty or non-informative segments after the split. */
 export function splitMultiValue(value: string): string[] {
   if (!value) return [];
-  // Pattern : newline OU " | " OU " ; " (pipe et semicolon doivent etre
-  // entoures de whitespace pour eviter de split "5|6" code interne ou
-  // "n;n" formule).
+  // Pattern: newline OR " | " OR " ; " (pipe and semicolon must be
+  // surrounded by whitespace to avoid splitting "5|6" internal code or
+  // "n;n" formula).
   const parts = value
     .split(/\r?\n|\s+\|\s+|\s+;\s+/)
     .map((p) => p.trim())
     .filter((p) => p.length > 0);
-  // Filtre les segments non-informatives (apres split, "N/A" / "-" peuvent
-  // apparaitre comme element separe).
+  // Filter out non-informative segments (after the split, "N/A" / "-" can
+  // appear as a separate element).
   return parts.filter((p) => {
     const stripped = p.replace(/[.,;:]+$/g, '').trim();
     return stripped.length > 0 && !NON_INFORMATIVE_VALUE_RE.test(stripped);
@@ -414,11 +414,11 @@ export function splitMultiValue(value: string): string[] {
 }
 
 interface AssetEntry {
-  /** Path absolu accessible par le moteur Python. */
+  /** Absolute path accessible by the Python engine. */
   absPath: string;
-  /** Nom de base sans extension, en lowercase. Pour matching par prefix. */
+  /** Base name without extension, lowercase. For prefix matching. */
   baseLower: string;
-  /** image = photo produit (jpg/png/...), schema = schema technique (pdf). */
+  /** image = product photo (jpg/png/...), schema = technical schema (pdf). */
   kind: 'image' | 'schema';
 }
 
@@ -427,8 +427,8 @@ interface AssetIndex {
   byBaseLower: Map<string, AssetEntry>;
 }
 
-/** Charge les images depuis les fichiers assets (images directes + ZIPs)
- *  et les copie dans assetsOutDir. Retourne un index pour matching ulterieur. */
+/** Loads the images from the asset files (direct images + ZIPs) and copies
+ *  them into assetsOutDir. Returns an index for later matching. */
 async function buildAssetIndex(
   assetFiles: ExtractedFile[],
   assetsOutDir: string,
@@ -464,8 +464,8 @@ async function buildAssetIndex(
         kind: 'image',
       });
     } else if (f.kind === 'zip') {
-      // Garde-fou avant alloc : AdmZip charge le fichier entier en memoire.
-      // Refuse les ZIPs > MAX_ZIP_COMPRESSED_BYTES pour eviter d'OOM le serveur.
+      // Guard before alloc: AdmZip loads the entire file into memory.
+      // Reject ZIPs > MAX_ZIP_COMPRESSED_BYTES to avoid OOM-ing the server.
       try {
         const st = await fs.stat(f.storedPath);
         if (st.size > MAX_ZIP_COMPRESSED_BYTES) {
@@ -487,8 +487,8 @@ async function buildAssetIndex(
       let totalWritten = 0;
       for (const entry of zip.getEntries()) {
         if (entry.isDirectory) continue;
-        // Defense zip-slip : on ignore les entries avec separateurs ou ".."
-        // (POSIX et Windows). Plus path.basename pour ne garder que le nom.
+        // Zip-slip defense: we ignore entries with separators or ".."
+        // (POSIX and Windows). Plus path.basename to keep only the name.
         const rawName = entry.entryName ?? '';
         if (rawName.includes('..') || /[\\\\]/.test(rawName)) continue;
         const base = path.basename(rawName);
@@ -506,7 +506,7 @@ async function buildAssetIndex(
         }
         const finalName = uniqueName(base);
         const absPath = path.join(assetsOutDir, finalName);
-        // Verif finale : absPath doit rester sous assetsOutDir resolve.
+        // Final check: absPath must stay under the resolved assetsOutDir.
         const resolved = path.resolve(absPath);
         const baseAbs = path.resolve(assetsOutDir);
         if (!resolved.startsWith(baseAbs + path.sep)) continue;
@@ -519,10 +519,10 @@ async function buildAssetIndex(
       }
     }
   }
-  // Map de lookup : baseLower brut (avec accents) + variante stripped
-  // accents pour matcher des refs XLSX saisies sans accents.
-  // Exemple : asset "Mégère.jpg" → keys "mégère" ET "megere".
-  // L'entry brute prime si conflit (rare en pratique).
+  // Lookup map: raw baseLower (with accents) + accent-stripped variant to
+  // match XLSX refs entered without accents.
+  // Example: asset "Mégère.jpg" → keys "mégère" AND "megere".
+  // The raw entry takes precedence on conflict (rare in practice).
   const byBaseLower = new Map<string, AssetEntry>();
   for (const e of entries) {
     byBaseLower.set(e.baseLower, e);
@@ -534,8 +534,8 @@ async function buildAssetIndex(
   return { entries, byBaseLower };
 }
 
-/** Toutes les valeurs des colonnes "identifiant" (sku/ref/ean/gencod) d'une ligne,
- *  triees par longueur decroissante (matching priorise les codes complets sur les prefixes). */
+/** All the values of the "identifier" columns (sku/ref/ean/gencod) of a row,
+ *  sorted by decreasing length (matching prioritizes full codes over prefixes). */
 function identifierValues(row: Record<string, string>, headers: string[]): string[] {
   const cols = headers.filter((h) => SKU_RE.test(stripAccents(h)));
   const vals = cols
@@ -544,15 +544,15 @@ function identifierValues(row: Record<string, string>, headers: string[]): strin
   return [...new Set(vals)].sort((a, b) => b.length - a.length);
 }
 
-/** Normalise une chaine pour matching tolerant : minuscules + alphanum + sans
- *  accents. Permet de matcher :
- *   - "999100 0001234" avec "999100_0001234" ou "9991000001234"
- *   - "Mégère" (asset) avec "MEGERE" (ref XLSX sans accents)
- *   - "Cafetière" avec "cafetiere"
+/** Normalizes a string for tolerant matching: lowercase + alphanumeric +
+ *  no accents. Allows matching:
+ *   - "999100 0001234" with "999100_0001234" or "9991000001234"
+ *   - "Mégère" (asset) with "MEGERE" (XLSX ref without accents)
+ *   - "Cafetière" with "cafetiere"
  *
- *  Avant : les accents tombaient dans le strip [^a-z0-9] → "Mégère" devenait
- *  "mgre" (4 chars perdus). Maintenant : strip accents NFD d'abord, puis
- *  filtre ASCII → "megere" (preservation semantique). */
+ *  Before: the accents fell into the [^a-z0-9] strip → "Mégère" became
+ *  "mgre" (4 chars lost). Now: strip accents NFD first, then filter to ASCII
+ *  → "megere" (semantic preservation). */
 function normForMatch(s: string): string {
   return stripAccents(s).toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
@@ -561,9 +561,9 @@ function findByPrefix(index: AssetIndex, candidate: string, kind: 'image' | 'sch
   const c = candidate.toLowerCase();
   const exact = index.byBaseLower.get(c);
   if (exact && exact.kind === kind) return exact;
-  // Lookup symetrique accent-insensible : essaye aussi le candidate
-  // stripped. Cas typique : candidate XLSX "Mégère" + asset "megere.jpg"
-  // (sans accent) → cle Map "megere" matche.
+  // Symmetric accent-insensitive lookup: also try the stripped candidate.
+  // Typical case: XLSX candidate "Mégère" + asset "megere.jpg" (without
+  // accent) → Map key "megere" matches.
   const cStripped = stripAccents(c);
   if (cStripped !== c) {
     const exactStripped = index.byBaseLower.get(cStripped);
@@ -571,39 +571,39 @@ function findByPrefix(index: AssetIndex, candidate: string, kind: 'image' | 'sch
   }
   for (const e of index.entries) if (e.kind === kind && e.baseLower.startsWith(c)) return e;
   for (const e of index.entries) if (e.kind === kind && e.baseLower.includes(c)) return e;
-  // Match inverse : candidate (ref XLSX) CONTIENT le baseLower de l'asset.
-  // Cas typique : ref XLSX zero-padded ou prefixee/suffixee ("REF-AB12-2024")
-  // matche asset "ab12.jpg". On exige baseLower >= 4 chars pour eviter de
-  // matcher des stems trop courts qui creeraient des faux positifs.
+  // Inverse match: the candidate (XLSX ref) CONTAINS the asset's baseLower.
+  // Typical case: a zero-padded or prefixed/suffixed XLSX ref ("REF-AB12-2024")
+  // matches asset "ab12.jpg". We require baseLower >= 4 chars to avoid
+  // matching stems that are too short and would create false positives.
   for (const e of index.entries) {
     if (e.kind !== kind) continue;
     if (e.baseLower.length >= 4 && c.includes(e.baseLower)) return e;
   }
-  // Matching tolerant : on retire ponctuation/espaces des deux cotes
+  // Tolerant matching: we remove punctuation/spaces on both sides
   const cn = normForMatch(candidate);
   if (cn.length >= 3) {
     for (const e of index.entries) {
       if (e.kind === kind && normForMatch(e.baseLower).includes(cn)) return e;
     }
-    // Match inverse tolerant
+    // Tolerant inverse match
     for (const e of index.entries) {
       if (e.kind !== kind) continue;
       const bn = normForMatch(e.baseLower);
       if (bn.length >= 4 && cn.includes(bn)) return e;
     }
   }
-  // Variante leading zeros : un ERP exporte souvent les refs zero-padded
-  // ("0012345" XLSX) tandis que les assets sont nommes sans ("12345.jpg").
-  // On essaye le candidate sans leading zeros, ET on essaye d'ajouter des
-  // zeros si le candidate est plus court que le baseLower.
+  // Leading-zeros variant: an ERP often exports refs zero-padded ("0012345"
+  // XLSX) whereas the assets are named without ("12345.jpg"). We try the
+  // candidate without leading zeros, AND we try adding zeros if the candidate
+  // is shorter than the baseLower.
   const cnNoZeros = cn.replace(/^0+/, '');
   if (cnNoZeros.length >= 3 && cnNoZeros !== cn) {
     for (const e of index.entries) {
       if (e.kind === kind && normForMatch(e.baseLower).includes(cnNoZeros)) return e;
     }
   }
-  // Inverse : candidate sans zeros, baseLower avec → on strip aussi les
-  // leading zeros du baseLower avant compare.
+  // Inverse: candidate without zeros, baseLower with → we also strip the
+  // leading zeros of the baseLower before comparing.
   if (cn.length >= 3) {
     for (const e of index.entries) {
       if (e.kind !== kind) continue;
@@ -614,34 +614,34 @@ function findByPrefix(index: AssetIndex, candidate: string, kind: 'image' | 'sch
   return undefined;
 }
 
-/** Translitterations non-decomposables (caracteres qui n'ont pas de forme
- *  NFD avec diacritiques separables). Indispensable pour preserver le
- *  contenu informatif lors du slugify de noms multilingues (allemand "ß",
- *  scandinave "ø", polonais "ł", islandais "ð/þ", ligatures latines).
+/** Non-decomposable transliterations (characters that have no NFD form with
+ *  separable diacritics). Essential to preserve the informative content when
+ *  slugifying multilingual names (German "ß", Scandinavian "ø", Polish "ł",
+ *  Icelandic "ð/þ", Latin ligatures).
  *
- *  Sans cette table, "Straße" devient "stra-e" au lieu de "strasse" et
- *  ne match plus l'asset "strasse.jpg". */
+ *  Without this table, "Straße" becomes "stra-e" instead of "strasse" and no
+ *  longer matches the asset "strasse.jpg". */
 const TRANSLIT_MAP: Record<string, string> = {
-  // Allemand
+  // German
   'ß': 'ss', 'ẞ': 'SS',
-  // Ligatures latines
+  // Latin ligatures
   'œ': 'oe', 'Œ': 'OE', 'æ': 'ae', 'Æ': 'AE',
   'ﬁ': 'fi', 'ﬂ': 'fl',
-  // Scandinave / nordique
+  // Scandinavian / Nordic
   'ø': 'o', 'Ø': 'O',
-  'å': 'a', 'Å': 'A', // gere aussi par NFD mais explicite ici
-  // Islandais
+  'å': 'a', 'Å': 'A', // also handled by NFD but explicit here
+  // Icelandic
   'ð': 'd', 'Ð': 'D',
   'þ': 'th', 'Þ': 'TH',
-  // Polonais
+  // Polish
   'ł': 'l', 'Ł': 'L',
-  // Turc / centre-europe
+  // Turkish / Central Europe
   'ı': 'i', 'İ': 'I',
-  // Symboles courants dans noms commerciaux
+  // Common symbols in commercial names
   '&': 'and', '@': 'at', '+': 'plus',
 };
 
-/** Applique les translitterations avant stripAccents. Idempotent. */
+/** Applies the transliterations before stripAccents. Idempotent. */
 function transliterate(s: string): string {
   let out = '';
   for (const ch of s) {
@@ -656,10 +656,10 @@ function slugify(s: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-/** Trouve l'image correspondant a une ligne produit :
- *  1) colonne 'image' explicite si presente
- *  2) sinon par identifiants (ref, sku, ean, gencod) — prefix match
- *  3) sinon par slug du nom — substring match
+/** Finds the image corresponding to a product row:
+ *  1) explicit 'image' column if present
+ *  2) otherwise by identifiers (ref, sku, ean, gencod) — prefix match
+ *  3) otherwise by name slug — substring match
  */
 function matchAsset(
   row: Record<string, string>,
@@ -670,10 +670,10 @@ function matchAsset(
 ): AssetEntry | undefined {
   if (kind === 'image' && cols.image && row[cols.image]) {
     const v = row[cols.image].trim();
-    // Strip query params (?v=2) et fragment (#anchor) AVANT path.basename :
-    // CSV exporte depuis CMS contient souvent des URLs type
-    // "https://cdn.example.com/products/AB1234.jpg?v=2&w=800". Sans strip,
-    // baseNoExt deviendrait "AB1234.jpg?v=2&w=800" (faux match).
+    // Strip query params (?v=2) and fragment (#anchor) BEFORE path.basename:
+    // a CSV exported from a CMS often contains URLs like
+    // "https://cdn.example.com/products/AB1234.jpg?v=2&w=800". Without
+    // stripping, baseNoExt would become "AB1234.jpg?v=2&w=800" (wrong match).
     const cleaned = v.split(/[?#]/)[0];
     const baseNoExt = path.basename(cleaned).replace(/\.[^.]+$/, '').toLowerCase();
     const exact = index.byBaseLower.get(baseNoExt);
@@ -687,9 +687,9 @@ function matchAsset(
   if (cols.name && row[cols.name]) {
     const slug = slugify(row[cols.name]);
     if (slug) {
-      // findByPrefix utilise startsWith / includes / match inverse /
-      // normForMatch tolerant → couvre les noms longs ("Mitigeur Évier Pro
-      // Avec Bec Pivotant" matche asset "mitigeur-pro.jpg" via inverse).
+      // findByPrefix uses startsWith / includes / inverse match / tolerant
+      // normForMatch → covers long names ("Mitigeur Évier Pro Avec Bec
+      // Pivotant" matches asset "mitigeur-pro.jpg" via inverse).
       const hit = findByPrefix(index, slug, kind);
       if (hit) return hit;
     }
@@ -707,10 +707,10 @@ function buildProductFromRow(
   technicalKeyRe: RegExp,
   humanizeStripRe: RegExp,
 ): ProductInput | null {
-  // Cascade de fallback pour le nom :
-  //   1. colonne name detectee (designation/nom/etc.)
-  //   2. colonne sku/ref (si name vide, mieux qu'un placeholder generique)
-  //   3. "Produit N+1" generique en dernier recours
+  // Fallback cascade for the name:
+  //   1. detected name column (designation/nom/etc.)
+  //   2. sku/ref column (if name is empty, better than a generic placeholder)
+  //   3. generic "Produit N+1" as a last resort
   const nameFromCol = cols.name && row[cols.name] ? String(row[cols.name]).trim() : '';
   const refFromCol = cols.sku && row[cols.sku] ? String(row[cols.sku]).trim() : '';
   const rawName = nameFromCol || refFromCol || `Produit ${fallbackIdx + 1}`;
@@ -755,32 +755,32 @@ function buildProductFromRow(
 }
 
 export interface BuildProductOptions {
-  /** Override du mapping famille -> ruban vertical. Defaut = vide. */
+  /** Override of the family -> vertical ribbon mapping. Default = empty. */
   familyRibbonMap?: FamilyRibbonRule[];
-  /** Patterns regex (string) pour la colonne section/sous-categorie. */
+  /** Regex patterns (string) for the section/sub-category column. */
   sectionColumnPatterns?: string[];
-  /** Patterns regex (string) pour la colonne famille macro. */
+  /** Regex patterns (string) for the macro family column. */
   familyColumnPatterns?: string[];
-  /** Pattern regex (string) pour la colonne couleur/finition. */
+  /** Regex pattern (string) for the color/finish column. */
   colorColumnPattern?: string;
-  /** Pattern regex (string) pour les colonnes techniques a ignorer. */
+  /** Regex pattern (string) for the technical columns to ignore. */
   technicalKeyPattern?: string;
-  /** Pattern regex (string) pour nettoyer les noms d'assets. Vide = pas de
-   *  nettoyage ; null/absent = defaut (timestamp-hash- d'uploads multer). */
+  /** Regex pattern (string) to clean up asset names. Empty = no cleanup;
+   *  null/absent = default (timestamp-hash- from multer uploads). */
   assetNameStripPattern?: string;
-  /** Pattern regex (string) pour retirer un prefixe d'une cle de spec lors de
-   *  l'humanisation (ex: "538 Longueur" -> "Longueur"). Vide = pas de
-   *  nettoyage ; absent = defaut (prefixe numerique court ERP). */
+  /** Regex pattern (string) to remove a prefix from a spec key during
+   *  humanization (e.g. "538 Longueur" -> "Longueur"). Empty = no cleanup;
+   *  absent = default (short ERP numeric prefix). */
   humanizeStripPattern?: string;
-  /** Active le mapping intelligent par Claude quand l'heuristique a un trou
-   *  (name fallback sur 1ere col, sku/section/family absents). Default true. */
+  /** Enables smart mapping via Claude when the heuristic has a gap (name
+   *  falls back to first col, sku/section/family missing). Default true. */
   enableSmartMapping?: boolean;
-  /** Active le matching d'images par Claude quand l'heuristique echoue
-   *  (> 30% des produits sans image et assets dispo). Default true. */
+  /** Enables image matching via Claude when the heuristic fails (> 30% of
+   *  products without an image and assets available). Default true. */
   enableSmartImageMatching?: boolean;
-  /** Repertoire racine du projet (pour exposer .claude/skills/ a la CLI). */
+  /** Project root directory (to expose .claude/skills/ to the CLI). */
   projectDir?: string;
-  /** Path du binaire claude (override de PATH/CLAUDE_BIN). */
+  /** Path of the claude binary (override of PATH/CLAUDE_BIN). */
   claudeBin?: string;
 }
 
@@ -825,14 +825,14 @@ export interface BuiltProductInputs {
   products: ProductInput[];
   assetsDir: string;
   matchedImageCount: number;
-  /** Lignes ou fichiers ignores avec leur cause (regex non matchee, type
-   *  inattendu, etc.). Ne fait PAS echouer le pipeline. */
+  /** Rows or files skipped with their cause (regex not matched, unexpected
+   *  type, etc.). Does NOT fail the pipeline. */
   warnings: string[];
 }
 
-/** Convertit les fichiers CSV/XLSX + assets en liste de ProductInput (avec image_path si matchee).
- *  Robuste aux donnees exotiques : chaque ligne est traitee dans un try/catch
- *  isole, les echecs sont remontes en warnings sans bloquer le batch. */
+/** Converts the CSV/XLSX files + assets into a list of ProductInput (with image_path if matched).
+ *  Robust to exotic data: each row is processed in an isolated try/catch,
+ *  failures are surfaced as warnings without blocking the batch. */
 export async function buildProductInputs(
   files: ExtractedFile[],
   workDir: string,
@@ -845,7 +845,7 @@ export async function buildProductInputs(
   const colorRe = compileRegex(options.colorColumnPattern, DEFAULT_COLOR_PATTERN, 'color_column_pattern', warnings);
   const technicalKeyRe = compileRegex(options.technicalKeyPattern, DEFAULT_TECHNICAL_KEY_PATTERN, 'technical_key_pattern', warnings);
   const humanizeStripRe = options.humanizeStripPattern === ''
-    ? /(?!)/  // ne matche jamais => pas de strip
+    ? /(?!)/  // never matches => no strip
     : compileRegex(options.humanizeStripPattern, DEFAULT_HUMANIZE_STRIP_PATTERN, 'humanize_strip_pattern', warnings);
   let assetStripRe: RegExp | null = DEFAULT_ASSET_STRIP_PATTERN;
   if (options.assetNameStripPattern !== undefined) {
@@ -912,8 +912,8 @@ export async function buildProductInputs(
       warnings.push(`Fichier ${f.originalName} : aucune colonne de nom detectable`);
       continue;
     }
-    // Surface des colonnes catégorie détectées (utile pour debug XLSX où la
-    // hiérarchie sommaire ne se déclenche pas comme prévu).
+    // Surface the detected category columns (useful for debugging XLSX where
+    // the coarse hierarchy doesn't trigger as expected).
     {
       const parts: string[] = [];
       if (cols.family) parts.push(`famille="${cols.family}"`);
@@ -928,13 +928,13 @@ export async function buildProductInputs(
     const nameByPattern = pickColumnByPatterns(data.headers, NAME_PATTERNS);
     const heuristicHasGap = !nameByPattern || !cols.sku || !cols.section || !cols.family;
 
-    // Smart mapping Claude : appele uniquement si l'heuristique a un trou,
-    // pour eviter les couts inutiles quand le mapping regex est complet.
+    // Claude smart mapping: called only if the heuristic has a gap, to avoid
+    // unnecessary costs when the regex mapping is complete.
     if (heuristicHasGap && options.enableSmartMapping !== false && options.projectDir) {
       try {
-        // Tente Gemini en premier (gratuit + pas d'expiration auth). Si
-        // indispo ou echec, fallback sur Claude CLI (qui peut aussi echouer
-        // si token expire).
+        // Try Gemini first (free + no auth expiration). If unavailable or it
+        // fails, fall back to the Claude CLI (which can also fail if the token
+        // is expired).
         const heuristic = {
           name: nameByPattern ?? null,
           sku: cols.sku ?? null,
@@ -950,7 +950,7 @@ export async function buildProductInputs(
           heuristic,
           enabled: true,
         });
-        // Fallback Claude si Gemini a echoue (pas de cle, erreur API)
+        // Claude fallback if Gemini failed (no key, API error)
         if (!mapped.ran || !mapped.mapping) {
           mapped = await claudeColumnMap({
             headers: data.headers,
@@ -1002,9 +1002,9 @@ export async function buildProductInputs(
       }
     }
 
-    // Warnings residuels apres smart mapping. Le `cols.name` n'est jamais
-    // null car detectCols fallback sur headers[0]. On signale le fallback
-    // quand AUCUN pattern n'a matché (= heuristique a deviné, peut être faux).
+    // Residual warnings after smart mapping. `cols.name` is never null
+    // because detectCols falls back to headers[0]. We flag the fallback when
+    // NO pattern matched (= the heuristic guessed, it may be wrong).
     if (!nameByPattern) {
       warnings.push(
         `${f.originalName} : aucune colonne de nom matchee. Fallback sur "${cols.name}" (1ere colonne). `
@@ -1053,9 +1053,9 @@ export async function buildProductInputs(
   }
   let matchedImageCount = products.filter((p) => p.image_path).length;
 
-  // Smart image matching par Claude : second pass sur les produits orphelins
-  // quand > 30% sans image ET assets dispo. Permet de rattraper les cas ou
-  // l'heuristique de slug/ref ne matche pas (noms d'assets exotiques).
+  // Claude smart image matching: a second pass over the orphaned products
+  // when > 30% have no image AND assets are available. Helps recover the
+  // cases where the slug/ref heuristic doesn't match (exotic asset names).
   if (
     products.length > 0
     && assetIndex.entries.length > 0
@@ -1070,8 +1070,8 @@ export async function buildProductInputs(
         .map(({ p, idx }) => ({ idx, name: p.name, ref: p.ref ?? null }));
       const assetsForMatch = assetIndex.entries.map((e) => ({ baseName: e.baseLower, absPath: e.absPath }));
       try {
-        // Tente Gemini en premier (gratuit + sans expiration). Fallback Claude
-        // si Gemini indispo / erreur API.
+        // Try Gemini first (free + no expiration). Claude fallback if Gemini
+        // is unavailable / API error.
         const { geminiMatchAssets } = await import('../v2/gemini/imageMatcher');
         let matched: {
           matched: { idx: number; absPath: string }[];
@@ -1126,9 +1126,9 @@ export async function buildProductInputs(
   return { products, assetsDir, matchedImageCount, warnings };
 }
 
-/** Detecte les colonnes via les patterns. Isole pour pouvoir try/catch
- *  individuellement (ex : header avec caractere Unicode bizarre qui fait
- *  exploser un regex). */
+/** Detects the columns via the patterns. Isolated so it can be try/catch'd
+ *  individually (e.g. a header with a weird Unicode character that blows up a
+ *  regex). */
 function detectCols(
   headers: string[],
   patterns: {
@@ -1142,17 +1142,17 @@ function detectCols(
     subFamilyPatterns: DEFAULT_SUBFAMILY_PATTERNS,
     colorRe: DEFAULT_COLOR_PATTERN,
   },
-  /** Si fourni : on detecte automatiquement la hierarchie via la cardinalité
-   *  des valeurs (générique, indépendant des noms de colonnes spécifiques). */
+  /** If provided: we automatically detect the hierarchy via the cardinality
+   *  of the values (generic, independent of specific column names). */
   rows?: Record<string, string>[],
 ) {
-  // Priorité 1 : détection auto via cardinalité (générique, marche pour tout
-  // catalogue où les colonnes catégorie contiennent un mot-clé hierarchique)
+  // Priority 1: auto-detection via cardinality (generic, works for any
+  // catalog where the category columns contain a hierarchical keyword)
   const auto = rows && rows.length > 0
     ? detectCategoryHierarchy(headers, rows)
     : {};
 
-  // Priorité 2 : fallback regex patterns (heuristique simple si auto donne rien)
+  // Priority 2: fallback regex patterns (simple heuristic if auto yields nothing)
   const sectionCol = auto.section ?? pickColumnByPatterns(headers, patterns.sectionPatterns);
   const familyCol = auto.family ?? pickColumnByPatterns(headers, patterns.familyPatterns);
   const subFamilyCol = auto.subFamily
@@ -1169,8 +1169,8 @@ function detectCols(
   };
 }
 
-/** Helpers exposes pour les tests unitaires uniquement. Ne pas consommer
- *  depuis le code de production. */
+/** Helpers exposed for unit tests only. Do not consume from production
+ *  code. */
 export const __testing = {
   stripAccents,
   humanizeKey,

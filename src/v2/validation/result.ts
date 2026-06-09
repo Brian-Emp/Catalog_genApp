@@ -1,37 +1,37 @@
 /**
- * Pattern Result<T, E> — alternative aux exceptions.
+ * Result<T, E> pattern — an alternative to exceptions.
  *
- * Une fonction qui peut echouer renvoie soit { ok: true, data: ... } soit
- * { ok: false, errors: [...] }. Le compilateur TS force le code appelant a
- * gerer les 2 cas (impossible d'oublier).
+ * A function that can fail returns either { ok: true, data: ... } or
+ * { ok: false, errors: [...] }. The TS compiler forces the calling code
+ * to handle both cases (impossible to forget).
  *
- * Inspire de Rust (Result<T, E>) et Go (val, err pattern).
+ * Inspired by Rust (Result<T, E>) and Go (val, err pattern).
  */
 
-/** Une erreur de validation : chemin dans le JSON + message en clair. */
+/** A validation error: path within the JSON + plain-text message. */
 export type ValidationError = {
-  /** Chemin pointant vers le champ fautif, ex "slots[2].name.bbox". */
+  /** Path pointing to the offending field, e.g. "slots[2].name.bbox". */
   path: string;
-  /** Description en francais lisible. */
+  /** Human-readable description in French. */
   message: string;
 };
 
-/** Resultat d'une validation : succes (data type) ou echec (liste d'erreurs). */
+/** Result of a validation: success (typed data) or failure (list of errors). */
 export type Result<T> =
   | { ok: true; data: T }
   | { ok: false; errors: ValidationError[] };
 
-/** Helper pour construire un succes. */
+/** Helper to build a success. */
 export function ok<T>(data: T): Result<T> {
   return { ok: true, data };
 }
 
-/** Helper pour construire un echec. */
+/** Helper to build a failure. */
 export function err(errors: ValidationError[]): Result<never> {
   return { ok: false, errors };
 }
 
-/** Helper pour echec avec une seule erreur. */
+/** Helper for a failure with a single error. */
 export function singleErr(path: string, message: string): Result<never> {
   return { ok: false, errors: [{ path, message }] };
 }

@@ -1,14 +1,14 @@
 /**
- * Phase 1.2 : Claude audit le pipeline.
+ * Phase 1.2: Claude audits the pipeline.
  *
- * Claude est chef d'orchestre : il valide la classification, peut suggerer
- * des corrections de kind, demander de DROP des pages additionnelles, et
- * laisser des notes. Acces complet : Read (peut consulter n'importe quelle
- * page-NN.json), Edit + Write (peut modifier audit-decisions.json).
+ * Claude acts as the conductor: it validates the classification, can suggest
+ * kind corrections, request DROPping additional pages, and leave notes. Full
+ * access: Read (can inspect any page-NN.json), Edit + Write (can modify
+ * audit-decisions.json).
  *
- * Strategie : on lui passe un resume compact (kind, sample texte, contexte
- * section) + les allocations. Il sort un JSON de corrections que le caller
- * applique avant la suppression finale.
+ * Strategy: we pass it a compact summary (kind, text sample, section
+ * context) + the allocations. It produces a JSON of corrections that the
+ * caller applies before the final removal.
  */
 
 import { promises as fs } from 'fs';
@@ -21,18 +21,18 @@ import type { ProductsAnalysis } from './inputs';
 
 export interface AuditCorrection {
   pageNumber: number;
-  /** Si fourni : change le kind. Sinon : juste un commentaire. */
+  /** If provided: changes the kind. Otherwise: just a comment. */
   newKind?: PageKind;
-  /** Si true : force le drop de cette page meme si kind=identity. */
+  /** If true: forces dropping this page even if kind=identity. */
   shouldDrop?: boolean;
   reason?: string;
 }
 
 export interface AuditResult {
   corrections: AuditCorrection[];
-  /** Notes generales de Claude sur la generation. */
+  /** Claude's general notes about the generation. */
   notes: string[];
-  /** Cost USD si retourne par la CLI. */
+  /** Cost USD if returned by the CLI. */
   costUsd?: number;
   durationMs: number;
 }
@@ -119,12 +119,12 @@ export async function claudeAudit(
   }
 }
 
-// ─── Application des corrections ─────────────────────────────────────────────
+// ─── Applying the corrections ────────────────────────────────────────────────
 
 /**
- * Applique les corrections Claude sur les classifications + l'allocation.
- * Retourne un nouvel objet de classifications. Les corrections shouldDrop
- * sont prises en compte par le caller dans la phase de drop finale.
+ * Applies Claude's corrections to the classifications + allocation. Returns
+ * a new classifications object. The shouldDrop corrections are taken into
+ * account by the caller during the final drop phase.
  */
 export function applyAuditCorrections(
   classifications: PageClassification[],

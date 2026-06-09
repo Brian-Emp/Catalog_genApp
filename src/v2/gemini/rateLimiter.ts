@@ -1,24 +1,24 @@
 /**
- * Rate-limiter PROACTIF par modele pour la cascade Gemini.
+ * PROACTIVE per-model rate limiter for the Gemini cascade.
  *
- * La cascade gere deja le RPD (requetes/JOUR) de facon REACTIVE : un 429 quota
- * journalier fait basculer de modele. Mais le free tier limite AUSSI par MINUTE :
- *  - RPM  : requetes / minute
- *  - TPM  : tokens (input + output) / minute
+ * The cascade already handles RPD (requests/DAY) REACTIVELY: a daily quota 429
+ * switches to another model. But the free tier ALSO limits per MINUTE:
+ *  - RPM : requests / minute
+ *  - TPM : tokens (input + output) / minute
  *
- * Sans garde, un burst de generations crame le RPM d'un modele → 429 → round-trip
- * inutile + throttle. Ce module track l'usage par modele sur une fenetre glissante
- * de 60 s et permet a la cascade de SKIPPER un modele AVANT de taper sa limite
- * minute (donc sans 429), en passant directement au modele suivant (pool distinct).
+ * Without a guard, a burst of generations burns a model's RPM → 429 → useless
+ * round-trip + throttle. This module tracks per-model usage over a sliding
+ * 60 s window and lets the cascade SKIP a model BEFORE hitting its per-minute
+ * limit (so without a 429), moving straight to the next model (distinct pool).
  *
- * Valeurs free tier (dashboard Google AI Studio, 2026-06). Faciles a ajuster ;
- * un modele inconnu retombe sur DEFAULT_LIMIT (conservateur).
+ * Free-tier values (Google AI Studio dashboard, 2026-06). Easy to adjust;
+ * an unknown model falls back to DEFAULT_LIMIT (conservative).
  */
 
 export interface ModelLimit {
-  /** Requetes par minute. */
+  /** Requests per minute. */
   rpm: number;
-  /** Tokens (input+output) par minute. Infinity = pas de limite TPM. */
+  /** Tokens (input+output) per minute. Infinity = no TPM limit. */
   tpm: number;
 }
 
@@ -30,19 +30,19 @@ const LIMITS: Record<string, ModelLimit> = {
   'gemma-4-31b-it': { rpm: 15, tpm: Number.POSITIVE_INFINITY },
 };
 
-/** Modele non liste → limite conservatrice (evite de cramer un quota inconnu). */
+/** Unlisted model → conservative limit (avoids burning an unknown quota). */
 const DEFAULT_LIMIT: ModelLimit = { rpm: 5, tpm: 250_000 };
 
 const WINDOW_MS = 60_000;
 
-/** Historique par modele : timestamp + tokens estimes de chaque appel recent. */
+/** Per-model history: timestamp + estimated tokens of each recent call. */
 const usage = new Map<string, { ts: number; tokens: number }[]>();
 
 export function getLimit(model: string): ModelLimit {
   return LIMITS[model] ?? DEFAULT_LIMIT;
 }
 
-/** Purge les entrees > 60 s et retourne la fenetre courante. */
+/** Purges entries > 60 s and returns the current window. */
 function windowOf(model: string, now: number): { ts: number; tokens: number }[] {
   const arr = usage.get(model) ?? [];
   const fresh = arr.filter((e) => now - e.ts < WINDOW_MS);
@@ -51,23 +51,23 @@ function windowOf(model: string, now: number): { ts: number; tokens: number }[] 
 }
 
 /**
- * Le modele peut-il absorber un appel de ~estTokens tokens cette minute sans
- * depasser son RPM/TPM ? Si false : la cascade doit le skipper (le suivant a un
- * pool distinct).
+ * Can the model absorb a call of ~estTokens tokens this minute without
+ * exceeding its RPM/TPM? If false: the cascade must skip it (the next one has a
+ * distinct pool).
  */
 export function canUse(model: string, estTokens = 0): boolean {
   const lim = getLimit(model);
   const now = Date.now();
   const win = windowOf(model, now);
-  if (win.length >= lim.rpm) return false; // RPM atteint cette minute
+  if (win.length >= lim.rpm) return false; // RPM reached this minute
   if (lim.tpm !== Number.POSITIVE_INFINITY) {
     const tokens = win.reduce((s, e) => s + e.tokens, 0);
-    if (tokens + estTokens > lim.tpm) return false; // TPM atteint
+    if (tokens + estTokens > lim.tpm) return false; // TPM reached
   }
   return true;
 }
 
-/** Enregistre un appel (envoye) pour ce modele : compte dans RPM + TPM. */
+/** Records a (sent) call for this model: counts toward RPM + TPM. */
 export function record(model: string, tokens: number): void {
   const now = Date.now();
   const win = windowOf(model, now);
@@ -75,7 +75,7 @@ export function record(model: string, tokens: number): void {
   usage.set(model, win);
 }
 
-/** Snapshot pour diagnostic : usage RPM/TPM courant par modele. */
+/** Snapshot for diagnostics: current RPM/TPM usage per model. */
 export function snapshot(): Record<string, { rpmUsed: number; rpmMax: number; tpmUsed: number }> {
   const now = Date.now();
   const out: Record<string, { rpmUsed: number; rpmMax: number; tpmUsed: number }> = {};

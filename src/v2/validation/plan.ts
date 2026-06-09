@@ -1,6 +1,6 @@
 /**
- * Validateur pour les fichiers plan.json (cf src/v2/schemas/plan.schema.json).
- * Meme strategie que extractedPage : accumulateur d'erreurs, dispatch sur
+ * Validator for plan.json files (cf src/v2/schemas/plan.schema.json).
+ * Same strategy as extractedPage: error accumulator, dispatch on the
  * discriminant.
  */
 
@@ -40,15 +40,15 @@ export function validatePlan(input: unknown): Result<Plan> {
     errors.push({ path: 'version', message: 'doit valoir "1"' });
   }
 
-  // template_pdf_hash (optionnel)
+  // template_pdf_hash (optional)
   if (input.template_pdf_hash !== undefined && !isString(input.template_pdf_hash)) {
     errors.push({ path: 'template_pdf_hash', message: 'doit etre une string si present' });
   }
 
-  // pages (obligatoire)
+  // pages (required)
   validatePages(input.pages, errors);
 
-  // warnings (optionnel)
+  // warnings (optional)
   if (input.warnings !== undefined) {
     if (!isArray(input.warnings)) {
       errors.push({ path: 'warnings', message: 'doit etre un tableau de strings' });
@@ -61,7 +61,7 @@ export function validatePlan(input: unknown): Result<Plan> {
     }
   }
 
-  // stats (optionnel)
+  // stats (optional)
   if (input.stats !== undefined) {
     validateStats(input.stats, errors);
   }
@@ -102,7 +102,7 @@ function validateRender(v: unknown, path: string, errors: ValidationError[]): vo
     return;
   }
   if (v.mode === 'keep_raw') {
-    // rien d'autre a valider
+    // nothing else to validate
     return;
   }
   if (v.mode === 'operations') {
@@ -186,7 +186,7 @@ function validatePlanProduct(v: unknown, path: string, errors: ValidationError[]
   if (v.image_path !== null && v.image_path !== undefined && !isString(v.image_path)) {
     errors.push({ path: `${path}.image_path`, message: 'doit etre une string ou null' });
   }
-  // specs (optionnel)
+  // specs (optional)
   if (v.specs !== undefined) {
     if (!isArray(v.specs)) {
       errors.push({ path: `${path}.specs`, message: 'doit etre un tableau' });
@@ -194,7 +194,7 @@ function validatePlanProduct(v: unknown, path: string, errors: ValidationError[]
       v.specs.forEach((s, i) => validatePlanProductSpec(s, `${path}.specs[${i}]`, errors));
     }
   }
-  // variants (optionnel)
+  // variants (optional)
   if (v.variants !== undefined) {
     if (!isArray(v.variants)) {
       errors.push({ path: `${path}.variants`, message: 'doit etre un tableau' });
@@ -274,7 +274,7 @@ function validateStats(v: unknown, errors: ValidationError[]): void {
   }
 }
 
-// Inutilises mais re-exportes pour les tests
+// Unused but re-exported for tests
 export { validatePagePlan, validateOperation, validatePlanProduct };
 export type _internals =
   | Operation

@@ -1,10 +1,10 @@
 /**
- * Spec key normalizer via Gemini : remap les keys produit (souvent ERP-style
- * "Largo_cm" / "Material_principal") vers le STYLE du template (ex "LONGUEUR :",
+ * Spec key normalizer via Gemini: remaps product keys (often ERP-style
+ * "Largo_cm" / "Material_principal") to the template STYLE (e.g. "LONGUEUR :",
  * "MATIERE :").
  *
- * Contract identique a normalizeSpecs (Claude) pour swap drop-in dans
- * l'orchestrator. Gemini Flash = gratuit, rapide, fiable sur ce cas precis.
+ * Contract identical to normalizeSpecs (Claude) for a drop-in swap in the
+ * orchestrator. Gemini Flash = free, fast, reliable on this specific case.
  */
 
 import { isGeminiAvailable } from './client';
@@ -12,9 +12,9 @@ import { routedGenerateText } from './providerRouter';
 import { parseGeminiJson } from './jsonParse';
 
 export interface GeminiSpecNormalizerOptions {
-  /** Keys produit a normaliser. */
+  /** Product keys to normalize. */
   productKeys: string[];
-  /** Keys vues dans le template (cible de la normalisation). */
+  /** Keys seen in the template (target of the normalization). */
   templateKeys: string[];
   enabled?: boolean;
 }
@@ -22,7 +22,7 @@ export interface GeminiSpecNormalizerOptions {
 export interface GeminiSpecNormalizerResult {
   ran: boolean;
   durationMs: number;
-  /** Map productKey → templateKey (uniquement les keys remappees). */
+  /** Map productKey → templateKey (only the remapped keys). */
   mapping: Record<string, string>;
   notes: string[];
 }
@@ -49,8 +49,8 @@ export async function geminiNormalizeSpecs(
   const prompt = buildPrompt(templateKeys, opts.productKeys);
   const res = await routedGenerateText({
     prompt,
-    // pref 'speed' : remap de cles = JSON court, API flash-lite ideale.
-    // Fallback CLI Gemini Pro si quota API.
+    // pref 'speed': key remapping = short JSON, flash-lite API ideal.
+    // Fallback to the Gemini Pro CLI if API quota is hit.
     pref: 'speed',
     temperature: 0.1,
     maxOutputTokens: 1536,
@@ -67,8 +67,8 @@ export async function geminiNormalizeSpecs(
     return { ran: true, durationMs: Date.now() - t0, mapping: {}, notes };
   }
 
-  // Validation : on ne garde que les mappings vers des keys template REELLES
-  // (Gemini hallucine parfois). Et on filtre les no-op (k → k).
+  // Validation: we keep only the mappings toward REAL template keys
+  // (Gemini sometimes hallucinates). And we filter out the no-ops (k → k).
   const templateSet = new Set(templateKeys);
   const productSet = new Set(opts.productKeys);
   const mapping: Record<string, string> = {};

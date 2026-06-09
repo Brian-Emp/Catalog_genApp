@@ -1,14 +1,14 @@
 /**
- * Intent-driven substitute — approche hybride.
+ * Intent-driven substitute — hybrid approach.
  *
- * Genere un plan semantique (IntentOps lisibles) ET delegue la production
- * des Operations bas niveau au substitutor eprouve (reflowSpecs, colorRef,
- * computeImageBbox, polish...). Le meilleur des deux mondes :
+ * Generates a semantic plan (readable IntentOps) AND delegates low-level
+ * Operations production to the battle-tested substitutor (reflowSpecs,
+ * colorRef, computeImageBbox, polish...). The best of both worlds:
  *
- *  - plan_v2.json = description lisible de CE QU'ON VEUT CHANGER
- *  - Operations = code battle-tested du substitutor (layout correct)
- *  - La boucle intent-loop utilise le meme langage IntentOp pour raffiner
- *  - Le PageSchema est construit et reutilise partout
+ *  - plan_v2.json = readable description of WHAT WE WANT TO CHANGE
+ *  - Operations = battle-tested substitutor code (correct layout)
+ *  - The intent-loop uses the same IntentOp language to refine
+ *  - The PageSchema is built and reused everywhere
  */
 import type { PlanProduct, Operation, Bbox, TextSpan, ColorHex } from '../types';
 import type { ProductBlock } from '../engine/blockDetector';
@@ -28,13 +28,13 @@ export interface IntentSubstituteContext {
   pageWidth: number;
   pageHeight: number;
   profile: TemplateProfile;
-  /** Spans section_banner pour substitution du cartouche. */
+  /** section_banner spans for substituting the cartouche. */
   sectionBannerSpans?: TextSpan[];
   newSectionLabel?: string;
-  /** Ruban vertical (famille) — voir SubstituteContext.ribbonSpans. */
+  /** Vertical ribbon (family) — see SubstituteContext.ribbonSpans. */
   ribbonSpans?: TextSpan[];
   newFamilyLabel?: string;
-  /** Raw spans/images/paths pour polish residus. */
+  /** Raw spans/images/paths for residue polish. */
   rawSpans?: TextSpan[];
   rawImages?: Bbox[];
   decorationVectors?: Bbox[];
@@ -42,34 +42,34 @@ export interface IntentSubstituteContext {
 }
 
 export interface IntentSubstituteResult {
-  /** Operations bas niveau pour le binaire C++ (via substitutor eprouve). */
+  /** Low-level Operations for the C++ binary (via the battle-tested substitutor). */
   operations: Operation[];
-  /** IntentOps generes (plan semantique pour plan_v2.json + boucle). */
+  /** Generated IntentOps (semantic plan for plan_v2.json + loop). */
   intents: IntentOp[];
-  /** Le PageSchema construit (reutilise par la boucle intent). */
+  /** The built PageSchema (reused by the intent loop). */
   schema: PageSchema;
 }
 
 /**
- * Pipeline intent-driven hybride :
- *   1. Build PageSchema depuis les blocks du template
- *   2. Genere IntentOps comme plan semantique (lisible, debuggable)
- *   3. Delegue au substitutor eprouve pour les Operations bas niveau
- *      (layout specs correct, image bbox genereuse, polish residus...)
- *   4. Retourne les deux : intents (pour plan_v2) + operations (pour C++)
+ * Hybrid intent-driven pipeline:
+ *   1. Build PageSchema from the template blocks
+ *   2. Generate IntentOps as a semantic plan (readable, debuggable)
+ *   3. Delegate to the battle-tested substitutor for the low-level Operations
+ *      (correct specs layout, generous image bbox, residue polish...)
+ *   4. Return both: intents (for plan_v2) + operations (for C++)
  */
 export function intentSubstitutePage(ctx: IntentSubstituteContext): IntentSubstituteResult {
-  // 1. PageSchema semantique
+  // 1. Semantic PageSchema
   const schema = buildPageSchema({
     page: ctx.page,
     kind: ctx.kind,
     blocks: ctx.blocks,
   });
 
-  // 2. Plan semantique (IntentOps) — description lisible
+  // 2. Semantic plan (IntentOps) — readable description
   const intents = buildIntentsFromProducts(ctx, schema);
 
-  // 3. Operations bas niveau via substitutor eprouve
+  // 3. Low-level Operations via the battle-tested substitutor
   const operations = substitutePage(ctx.blocks, ctx.products, {
     pageWidth: ctx.pageWidth,
     pageHeight: ctx.pageHeight,
@@ -87,7 +87,7 @@ export function intentSubstitutePage(ctx: IntentSubstituteContext): IntentSubsti
   return { operations, intents, schema };
 }
 
-// ─── Generation du plan semantique (IntentOps) ──────────────────────────────
+// ─── Generation of the semantic plan (IntentOps) ────────────────────────────
 
 function buildIntentsFromProducts(
   ctx: IntentSubstituteContext,
@@ -103,7 +103,7 @@ function buildIntentsFromProducts(
     const pfx = isMulti ? `${pagePrefix}.product_${blockIdx}` : pagePrefix;
 
     if (!product) {
-      // Bloc sans produit → tout effacer
+      // Block with no product → erase everything
       intents.push({ op: 'remove_element', target: `${pfx}.title` });
       if (block.refSpan) intents.push({ op: 'remove_element', target: `${pfx}.reference` });
       if (block.colorSpan) intents.push({ op: 'remove_element', target: `${pfx}.color` });
@@ -143,7 +143,7 @@ function buildIntentsFromProducts(
       });
     }
 
-    // Image principale
+    // Main image
     if (product.image_path) {
       intents.push({
         op: 'swap_image',
@@ -171,7 +171,7 @@ function buildIntentsFromProducts(
         value: safeText(valueText),
       });
     }
-    // Specs template en surplus → remove
+    // Surplus template specs → remove
     for (let si = n; si < block.specs.length; si++) {
       intents.push({
         op: 'remove_element',

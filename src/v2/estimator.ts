@@ -1,38 +1,38 @@
 /**
- * Estimateur de duree de generation. Honnete par construction : ne devine
- * pas, calibre sur les durees REELLES des N dernieres generations stockees
- * dans `generated/*.meta.json`.
+ * Generation duration estimator. Honest by construction: it does not guess,
+ * it calibrates on the REAL durations of the last N generations stored in
+ * `generated/*.meta.json`.
  *
- * Modele :
+ * Model:
  *    eta = base + descClaudeWait * (descEnabled ? 1 : 0)
  *        + perProductMs * nbProducts
  *
- * ou base/descClaudeWait/perProductMs sont :
- *   - calibres sur la mediane des N dernieres meta.json si dispo
- *   - sinon valeurs par defaut conservatrices (legerement surestimees pour
- *     ne pas frustrer l'utilisateur)
+ * where base/descClaudeWait/perProductMs are:
+ *   - calibrated on the median of the last N meta.json if available
+ *   - otherwise conservative default values (slightly overestimated so as
+ *     not to frustrate the user)
  *
- * On retourne ETA mediane + une fourchette ±25% pour signaler l'incertitude.
+ * We return the median ETA + a ±25% range to signal the uncertainty.
  */
 import { promises as fs } from 'fs';
 import path from 'path';
 
 const GEN_DIR = path.resolve('generated');
-/** Nombre max de meta.json a lire pour calibration. */
+/** Max number of meta.json to read for calibration. */
 const CALIBRATION_SAMPLE_SIZE = 30;
 
-/** Valeurs par defaut conservatrices (ms) — utilisees si aucune meta.json
- *  disponible. Calibrees sur observations endpoint complete (multer upload,
- *  parse XLSX, engine, render, write fichiers) : ~4s base, ~17s Claude
- *  descriptions, ~200ms par produit (Claude audit / substitute / render). */
+/** Conservative default values (ms) — used if no meta.json is available.
+ *  Calibrated on observations of the full endpoint (multer upload, XLSX
+ *  parse, engine, render, file writes): ~4s base, ~17s Claude
+ *  descriptions, ~200ms per product (Claude audit / substitute / render). */
 const DEFAULT_BASE_MS = 4000;
 const DEFAULT_DESC_WAIT_MS = 17000;
 const DEFAULT_PER_PRODUCT_MS = 200;
 
 export interface EstimateInput {
-  /** Si absent : utilise la mediane des dernieres generations comme proxy.
-   *  Sert au front qui peut afficher une estimation des qu'un template est
-   *  charge, avant meme de parser le XLSX. */
+  /** If absent: uses the median of the last generations as a proxy.
+   *  Used by the front-end, which can show an estimate as soon as a template
+   *  is loaded, even before parsing the XLSX. */
   productsCount?: number;
   withDescriptions: boolean;
 }
@@ -46,13 +46,13 @@ export interface EstimateBreakdown {
 
 export interface EstimateResult {
   etaMs: number;
-  /** Borne basse (~75% de l'eta), pour communiquer une fourchette honnete. */
+  /** Lower bound (~75% of the eta), to communicate an honest range. */
   etaLowerMs: number;
-  /** Borne haute (~125% de l'eta). */
+  /** Upper bound (~125% of the eta). */
   etaUpperMs: number;
-  /** Source des coefficients : "calibrated" si depuis meta.json, sinon "default". */
+  /** Source of the coefficients: "calibrated" if from meta.json, otherwise "default". */
   source: 'calibrated' | 'default';
-  /** Echantillon utilise pour la calibration (nb de meta.json lues). */
+  /** Sample used for the calibration (number of meta.json read). */
   sampleSize: number;
   breakdown: EstimateBreakdown;
 }
@@ -61,14 +61,14 @@ interface CalibrationCoeffs {
   baseMs: number;
   descClaudeMs: number;
   perProductMs: number;
-  /** Mediane des productCount observes. Sert de proxy quand le caller ne
-   *  fournit pas productsCount. */
+  /** Median of the observed productCount. Used as a proxy when the caller
+   *  does not provide productsCount. */
   medianProductsCount: number;
   sampleSize: number;
 }
 
-/** Lit les N dernieres meta.json pour deriver les coefficients medians.
- *  Retourne null si echantillon insuffisant (< 3 fichiers exploitables). */
+/** Reads the last N meta.json to derive the median coefficients.
+ *  Returns null if the sample is insufficient (< 3 usable files). */
 async function calibrateFromMetas(): Promise<CalibrationCoeffs | null> {
   let entries: string[] = [];
   try {
@@ -77,7 +77,7 @@ async function calibrateFromMetas(): Promise<CalibrationCoeffs | null> {
     return null;
   }
   const metas = entries.filter((n) => n.endsWith('.meta.json'));
-  // Tri par mtime desc, on prend les N plus recentes
+  // Sort by mtime desc, take the N most recent
   const withStat = await Promise.all(
     metas.map(async (name) => {
       try {
@@ -104,9 +104,9 @@ async function calibrateFromMetas(): Promise<CalibrationCoeffs | null> {
       const meta = JSON.parse(raw);
       const productsCount = Number(meta.productCount ?? 0);
       if (productsCount <= 0) continue;
-      // Duree totale : preferer totalDurationMs (mesure endpoint complete,
-      // ajoute depuis la calibration v2). Fallback : somme des phases stats
-      // (sous-estime mais mieux que rien pour les anciennes generations).
+      // Total duration: prefer totalDurationMs (full-endpoint measurement,
+      // added since the v2 calibration). Fallback: sum of the stats phases
+      // (underestimates but better than nothing for older generations).
       let durationMs = Number(meta.totalDurationMs ?? 0);
       if (!isFinite(durationMs) || durationMs <= 0) {
         const stats = meta?.stats ?? {};
@@ -129,22 +129,22 @@ async function calibrateFromMetas(): Promise<CalibrationCoeffs | null> {
           typeof w === 'string' && /description/i.test(w));
       samples.push({ productsCount, durationMs, descRan });
     } catch {
-      // skip malformes
+      // skip malformed
     }
   }
   if (samples.length < 3) return null;
 
-  // Regression simple : duration = base + perProduct * nbProducts
-  // On ignore la part Claude descriptions (non stockee fiable), on garde
-  // la valeur par defaut DEFAULT_DESC_WAIT_MS.
-  // Mediane par bucket de productsCount pour robustesse.
+  // Simple regression: duration = base + perProduct * nbProducts
+  // We ignore the Claude descriptions part (not reliably stored) and keep
+  // the default value DEFAULT_DESC_WAIT_MS.
+  // Median by productsCount bucket for robustness.
   const sortedDur = [...samples].sort((a, b) => a.durationMs - b.durationMs);
   const median = sortedDur[Math.floor(sortedDur.length / 2)];
-  // Estimation : perProduct = (median.durationMs - DEFAULT_BASE_MS) / nbProducts
+  // Estimate: perProduct = (median.durationMs - DEFAULT_BASE_MS) / nbProducts
   const perProductEst = median.productsCount > 0
     ? Math.max(10, (median.durationMs - DEFAULT_BASE_MS) / median.productsCount)
     : DEFAULT_PER_PRODUCT_MS;
-  // Mediane des productsCount (pour proxy si caller absent)
+  // Median of the productsCount (for proxy if caller is absent)
   const sortedCounts = [...samples].sort((a, b) => a.productsCount - b.productsCount);
   const medianProductsCount = sortedCounts[Math.floor(sortedCounts.length / 2)].productsCount;
 
@@ -157,7 +157,7 @@ async function calibrateFromMetas(): Promise<CalibrationCoeffs | null> {
   };
 }
 
-/** Estime la duree d'une generation. */
+/** Estimates the duration of a generation. */
 export async function estimateGenerationDuration(input: EstimateInput): Promise<EstimateResult> {
   const calibrated = await calibrateFromMetas();
   const coeffs = calibrated ?? {
@@ -167,17 +167,17 @@ export async function estimateGenerationDuration(input: EstimateInput): Promise<
     medianProductsCount: 0,
     sampleSize: 0,
   };
-  // productsCount fourni → utiliser tel quel. Absent → utiliser la mediane
-  // historique comme proxy (ou 0 si on n'a pas de stats).
+  // productsCount provided → use as-is. Absent → use the historical median
+  // as a proxy (or 0 if we have no stats).
   const products = input.productsCount != null
     ? Math.max(0, Math.floor(input.productsCount))
     : coeffs.medianProductsCount;
   const descMs = input.withDescriptions ? coeffs.descClaudeMs : 0;
   const productMs = products * coeffs.perProductMs;
   const etaMs = coeffs.baseMs + descMs + productMs;
-  // Fourchette d'incertitude ±35% (plus honnete que ±25%, le modele lineaire
-  // n'a pas la finesse pour serrer la prediction quand peu de samples ou que
-  // la variance est forte selon nb pages template / Claude descs).
+  // Uncertainty range ±35% (more honest than ±25%; the linear model
+  // lacks the precision to tighten the prediction when there are few samples
+  // or when variance is high depending on template page count / Claude descs).
   return {
     etaMs,
     etaLowerMs: Math.round(etaMs * 0.65),

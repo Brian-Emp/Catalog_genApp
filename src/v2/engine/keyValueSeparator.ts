@@ -1,62 +1,62 @@
 /**
- * Détection générique des séparateurs key/value dans les specs produit.
+ * Generic detection of key/value separators in product specs.
  *
- * Différents templates utilisent différents séparateurs :
- *   - ":"   (Catalogue A, la majorité des catalogues)
- *   - "="   (catalogues techniques type fiches data sheet)
- *   - "|"   (catalogues compacts en colonnes)
- *   - "→"   (catalogues design)
- *   - "·"   (point médian, catalogues élégants)
- *   - " — " (em-dash entoure d'espaces, catalogues editoriaux)
- *   - " – " (en-dash entoure d'espaces, variante typo)
+ * Different templates use different separators:
+ *   - ":"   (Catalogue A, the majority of catalogs)
+ *   - "="   (technical catalogs of the data-sheet kind)
+ *   - "|"   (compact column-based catalogs)
+ *   - "→"   (design catalogs)
+ *   - "·"   (middle dot, elegant catalogs)
+ *   - " — " (em-dash surrounded by spaces, editorial catalogs)
+ *   - " – " (en-dash surrounded by spaces, typographic variant)
  *
- * Note : les dashes ne sont consideres comme separateurs que s'ils sont
- * entoures d'espaces des deux cotes. Sans cette regle, "Bistro—Casa" (nom
- * compose) serait faussement detecte comme key/value.
+ * Note: dashes are only treated as separators if they are surrounded by
+ * spaces on both sides. Without this rule, "Bistro—Casa" (a compound name)
+ * would be wrongly detected as key/value.
  *
- * Helper centralisé pour ne pas hardcoder ":" partout dans le pipeline.
+ * Centralized helper to avoid hardcoding ":" everywhere in the pipeline.
  */
 
-/** Caractères "single char" qui peuvent séparer key et value dans un span de
- *  spec. Ces caracteres sont detectes ou qu'ils soient (pas de regle d'espace). */
+/** "Single char" characters that can separate key and value in a spec span.
+ *  These characters are detected wherever they appear (no space rule). */
 export const KEY_VALUE_SEPARATORS = [':', '=', '|', '→', '·'] as const;
 
-/** Caractères "compose" qui ne sont separateurs QUE s'ils sont entoures
- *  d'espaces. Inclut em-dash (—, U+2014) et en-dash (–, U+2013). */
+/** "Compound" characters that are separators ONLY when surrounded by spaces.
+ *  Includes em-dash (—, U+2014) and en-dash (–, U+2013). */
 export const COMPOUND_SEPARATORS = ['—', '–'] as const;
 
-/** Regex compilée des séparateurs single-char (échappés pour usage dans un
- *  set [..]). */
+/** Compiled regex of the single-char separators (escaped for use in a
+ *  [..] set). */
 export const KEY_VALUE_SEPARATORS_RE = /[:=|→·]/;
 
-/** Regex compilée des séparateurs compose (dash entoure d'espaces). */
+/** Compiled regex of the compound separators (dash surrounded by spaces). */
 export const COMPOUND_SEPARATORS_RE = /\s[—–]\s/;
 
-/** Regex pour matcher un séparateur en fin de string (avec whitespace optional
- *  avant/après). Match les patterns "MATIÈRE :", "MATIÈRE=", "MATIÈRE |",
- *  "MATIÈRE —" (avec espace avant le dash). */
+/** Regex matching a separator at the end of a string (with optional
+ *  whitespace before/after). Matches the patterns "MATIÈRE :", "MATIÈRE=",
+ *  "MATIÈRE |", "MATIÈRE —" (with a space before the dash). */
 export const TRAILING_KV_SEPARATOR_RE = /[\s\xa0]*(?:[:=|→·]|[—–])[\s\xa0]*$/;
 
-/** True si le texte contient au moins un séparateur key/value. Utilisé pour
- *  identifier les spans qui sont des keys de specs (vs texte libre).
+/** True if the text contains at least one key/value separator. Used to
+ *  identify spans that are spec keys (vs free text).
  *
- *  Detecte :
- *  - Single-char : ":", "=", "|", "→", "·" (n'importe ou)
- *  - Compose : "—" ou "–" UNIQUEMENT s'ils sont entoures d'espaces (anti
- *    faux positif sur les noms composes "Bistro—Casa"). */
+ *  Detects:
+ *  - Single-char: ":", "=", "|", "→", "·" (anywhere)
+ *  - Compound: "—" or "–" ONLY when surrounded by spaces (guards against
+ *    false positives on compound names like "Bistro—Casa"). */
 export function hasKeyValueSeparator(text: string): boolean {
   if (KEY_VALUE_SEPARATORS_RE.test(text)) return true;
   if (COMPOUND_SEPARATORS_RE.test(text)) return true;
   return false;
 }
 
-/** Sépare une chaîne "key : value" en { key, value }. Si pas de séparateur
- *  détecté → { key: text, value: '' }. Le séparateur trouvé est consommé.
+/** Splits a "key : value" string into { key, value }. If no separator is
+ *  detected → { key: text, value: '' }. The separator found is consumed.
  *
- *  Priorite : single-char d'abord (plus discriminants), puis dash spaces. */
+ *  Priority: single-char first (more discriminating), then dash spaces. */
 export function splitOnKeyValueSeparator(text: string): { key: string; value: string; separator: string | null } {
-  // 1. Single-char (priorite : les caracteres explicites priment sur le
-  //    dash qui peut aussi etre une ponctuation legitime).
+  // 1. Single-char (priority: explicit characters take precedence over the
+  //    dash, which can also be legitimate punctuation).
   const singleMatch = text.match(/^(.*?)([\s\xa0]*[:=|→·][\s\xa0]*)(.*)$/);
   if (singleMatch) {
     return {
@@ -65,7 +65,7 @@ export function splitOnKeyValueSeparator(text: string): { key: string; value: st
       separator: singleMatch[2].trim() || null,
     };
   }
-  // 2. Dash avec espaces obligatoires (anti faux positif nom compose).
+  // 2. Dash with mandatory spaces (guards against compound-name false positives).
   const dashMatch = text.match(/^(.*?)\s([—–])\s(.*)$/);
   if (dashMatch) {
     return {

@@ -3,17 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Générateur de catalogues</title>
+  <title>Catalogue generator</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <main>
     <header class="page-header">
-      <h1>Générateur de catalogues</h1>
-      <p>Régénération automatique d'un catalogue PDF à partir d'un document de référence et d'une base de produits actualisée.</p>
+      <h1>Catalogue generator</h1>
+      <p>Automatic regeneration of a PDF catalogue from a reference document and an up-to-date product database.</p>
     </header>
 
-    <h2 class="section-title">Fichiers sources</h2>
+    <h2 class="section-title">Source files</h2>
     <section class="zones">
       <div class="zone" data-category="template">
         <header>
@@ -26,14 +26,14 @@
             </svg>
           </span>
           <div class="zone-titles">
-            <h3>Document de référence</h3>
-            <p class="zone-desc">Catalogue PDF dont la mise en page est conservée à l'identique.</p>
+            <h3>Reference document</h3>
+            <p class="zone-desc">PDF catalogue whose layout is preserved identically.</p>
             <p class="zone-formats">.pdf</p>
           </div>
         </header>
         <div class="drop" tabindex="0">
           <input type="file" accept=".pdf" hidden>
-          <p>Déposer un fichier ou <button type="button" class="browse">parcourir</button></p>
+          <p>Drop a file or <button type="button" class="browse">browse</button></p>
         </div>
         <ul class="file-list"></ul>
       </div>
@@ -50,14 +50,14 @@
             </svg>
           </span>
           <div class="zone-titles">
-            <h3>Base produits</h3>
-            <p class="zone-desc">Désignations, références, coloris et caractéristiques techniques.</p>
+            <h3>Product database</h3>
+            <p class="zone-desc">Designations, references, finishes and technical characteristics.</p>
             <p class="zone-formats">.xlsx · .csv</p>
           </div>
         </header>
         <div class="drop" tabindex="0">
           <input type="file" multiple accept=".xlsx,.xlsm,.csv" hidden>
-          <p>Déposer un fichier ou <button type="button" class="browse">parcourir</button></p>
+          <p>Drop a file or <button type="button" class="browse">browse</button></p>
         </div>
         <ul class="file-list"></ul>
       </div>
@@ -72,22 +72,22 @@
             </svg>
           </span>
           <div class="zone-titles">
-            <h3>Visuels produits</h3>
-            <p class="zone-desc">Images appariées automatiquement par référence et insérées dans le document.</p>
+            <h3>Product visuals</h3>
+            <p class="zone-desc">Images matched automatically by reference and inserted into the document.</p>
             <p class="zone-formats">.zip · .png · .jpg</p>
           </div>
         </header>
         <div class="drop" tabindex="0">
           <input type="file" multiple accept=".zip,.png,.jpg,.jpeg,.webp" hidden>
-          <p>Déposer un fichier ou <button type="button" class="browse">parcourir</button></p>
+          <p>Drop a file or <button type="button" class="browse">browse</button></p>
         </div>
         <ul class="file-list"></ul>
       </div>
     </section>
 
     <section class="actions">
-      <button id="generateBtn" type="button" disabled>Générer le catalogue</button>
-      <button id="resetBtn" type="button">Réinitialiser</button>
+      <button id="generateBtn" type="button" disabled>Generate the catalogue</button>
+      <button id="resetBtn" type="button">Reset</button>
       <span id="genEstimate" class="gen-estimate" aria-live="polite"></span>
       <span id="genStatus" class="gen-status" aria-live="polite"></span>
     </section>
@@ -103,14 +103,14 @@
 
     <section id="genPreview" class="gen-preview hidden">
       <header class="preview-header">
-        <h2>Aperçu du catalogue</h2>
+        <h2>Catalogue preview</h2>
         <div class="preview-actions">
-          <a id="previewDownload" class="btn-link" href="#" download>Télécharger</a>
-          <a id="previewOpen" class="btn-link" href="#" target="_blank" rel="noopener">Ouvrir</a>
-          <button type="button" id="previewDelete" class="btn-link btn-link-danger">Supprimer</button>
+          <a id="previewDownload" class="btn-link" href="#" download>Download</a>
+          <a id="previewOpen" class="btn-link" href="#" target="_blank" rel="noopener">Open</a>
+          <button type="button" id="previewDelete" class="btn-link btn-link-danger">Delete</button>
         </div>
       </header>
-      <iframe id="previewFrame" title="Aperçu PDF" src="about:blank"></iframe>
+      <iframe id="previewFrame" title="PDF preview" src="about:blank"></iframe>
     </section>
 
     <section id="history" class="history hidden"></section>

@@ -1,53 +1,53 @@
 /**
- * gridLayout — overflow producteur : quand une PageAllocation a + de
- * produits que de blocs détectés sur la page template, on synthétise des
- * blocs supplémentaires en clonant le bloc template du bas (translation
- * verticale uniquement, MVP). À termes : grille 2D NxM avec scaling.
+ * gridLayout — producer overflow: when a PageAllocation has more products
+ * than blocks detected on the template page, we synthesize additional
+ * blocks by cloning the bottom template block (vertical translation only,
+ * MVP). Eventually: 2D NxM grid with scaling.
  *
- * Stratégie MVP (1 col, multi-rows) :
- *  1. Mesurer la hauteur du bloc template ref (le plus bas de la page)
- *  2. Calculer combien de rangs supplémentaires tiennent sous lui dans la
- *     zone disponible (pageHeight - footer margin)
- *  3. Émettre des ProductBlock synthétiques (copies translatées)
- *  4. Cap : on ne synthétise que jusqu'à `nProducts` (pas au-delà même si
- *     plus de place)
+ * MVP strategy (1 col, multi-rows):
+ *  1. Measure the height of the reference template block (the lowest on the page)
+ *  2. Compute how many additional rows fit below it in the available zone
+ *     (pageHeight - footer margin)
+ *  3. Emit synthetic ProductBlocks (translated copies)
+ *  4. Cap: we only synthesize up to `nProducts` (no further even if there
+ *     is more room)
  *
- * Le substitutor traite ces synthetic blocks comme des blocs normaux :
- * pas de modification du pipeline downstream.
+ * The substitutor treats these synthetic blocks as normal blocks: no
+ * change to the downstream pipeline.
  */
 
 import type { Bbox, TextSpan } from '../../types';
 import type { ProductBlock, ProductSpecBlock } from '../blockDetector';
 
-/** Marge minimum réservée en bas de page (footer / page number). */
+/** Minimum margin reserved at the bottom of the page (footer / page number). */
 const PAGE_FOOTER_MARGIN_PT = 40;
-/** Gap vertical entre 2 rangs synthétisés (pt). */
+/** Vertical gap between 2 synthesized rows (pt). */
 const ROW_GAP_PT = 8;
 
 export interface GridLayoutInput {
-  /** Blocs détectés sur la page template. */
+  /** Blocks detected on the template page. */
   originalBlocks: ProductBlock[];
-  /** Nombre total de produits à placer sur cette page. */
+  /** Total number of products to place on this page. */
   nProducts: number;
-  /** Hauteur totale de la page (pt). */
+  /** Total page height (pt). */
   pageHeight: number;
 }
 
 export interface GridLayoutResult {
-  /** Blocs finaux à substituer (originaux + synthétisés si overflow). */
+  /** Final blocks to substitute (originals + synthesized on overflow). */
   blocks: ProductBlock[];
-  /** True si on a synthétisé au moins 1 bloc (= mode grille déclenché). */
+  /** True if at least 1 block was synthesized (= grid mode triggered). */
   gridApplied: boolean;
-  /** Nombre de rangs ajoutés (0 si pas d'overflow ou pas de place). */
+  /** Number of rows added (0 if no overflow or no room). */
   rowsAdded: number;
 }
 
-/** Translate un Bbox de (dx, dy). */
+/** Translates a Bbox by (dx, dy). */
 function translateBbox(b: Bbox, dx: number, dy: number): Bbox {
   return [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy];
 }
 
-/** Translate un TextSpan : seule la bbox bouge, le reste est inchangé. */
+/** Translates a TextSpan: only the bbox moves, everything else is unchanged. */
 function translateSpan(s: TextSpan, dx: number, dy: number): TextSpan {
   return { ...s, bbox: translateBbox(s.bbox, dx, dy) };
 }
@@ -59,7 +59,7 @@ function translateSpec(s: ProductSpecBlock, dx: number, dy: number): ProductSpec
   };
 }
 
-/** Clone un ProductBlock en translatant toutes les positions de (dx, dy). */
+/** Clones a ProductBlock, translating all positions by (dx, dy). */
 function translateBlock(b: ProductBlock, dx: number, dy: number): ProductBlock {
   return {
     pageNumber: b.pageNumber,
@@ -79,14 +79,14 @@ function translateBlock(b: ProductBlock, dx: number, dy: number): ProductBlock {
   };
 }
 
-/** Détermine si grille overflow est applicable + génère les blocs synthétiques. */
+/** Determines whether grid overflow applies + generates the synthetic blocks. */
 export function synthesizeOverflowBlocks(input: GridLayoutInput): GridLayoutResult {
   const { originalBlocks, nProducts, pageHeight } = input;
   if (originalBlocks.length === 0 || nProducts <= originalBlocks.length) {
     return { blocks: originalBlocks, gridApplied: false, rowsAdded: 0 };
   }
 
-  // Bloc le plus bas (ref pour les clones translatés en dessous)
+  // Lowest block (reference for the clones translated below it)
   const lastBlock = originalBlocks.reduce((acc, b) => (b.yBottom > acc.yBottom ? b : acc));
   const refH = lastBlock.yBottom - lastBlock.yTop;
   if (refH <= 0) return { blocks: originalBlocks, gridApplied: false, rowsAdded: 0 };

@@ -1,14 +1,14 @@
 /**
- * Normalisation des spec keys produit au style du template via Claude.
+ * Normalization of product spec keys to the template's style via Claude.
  *
- * Cas d'usage : xlsx client avec keys en langue/style different du template
- * (ex "Largo bras" cote xlsx, "LONGUEUR :" cote template). Sans remap, le
- * substitutor affiche "LARGO BRAS :" au lieu de "LONGUEUR :", ce qui casse
- * l'apparence du catalogue.
+ * Use case: a client xlsx with keys in a different language/style than the
+ * template (e.g. "Largo bras" on the xlsx side, "LONGUEUR :" on the template
+ * side). Without remapping, the substitutor displays "LARGO BRAS :" instead
+ * of "LONGUEUR :", which breaks the catalog's appearance.
  *
- * Strategie : declenchement automatique sur detection de mismatch (> 50% des
- * keys produit absentes du template). Si mismatch faible : skip silencieux,
- * pas d'appel Claude inutile.
+ * Strategy: triggered automatically on mismatch detection (> 50% of product
+ * keys absent from the template). On a low mismatch: silent skip, no
+ * pointless Claude call.
  */
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -20,17 +20,17 @@ const MIN_TRIGGER_MISMATCH_RATIO = 0.5;
 const MIN_SUSPECT_RATIO = 0.5;
 const MAX_TEMPLATE_KEYS_SAMPLE = 30;
 
-/** Cle "suspecte" = contient un underscore (signature d'un header xlsx
- *  brut style ERP "Material_principal", "Largo_cm"). Une cle francaise
- *  humanisee propre n'a pas d'underscore. Critere simple, robuste, et qui
- *  evite la derive baseline ou Claude "simplifie" une key humanisee deja
- *  propre (ex "DURÉE DE GARANTIE (EN ANNÉES) :" → "GARANTIE :"). */
+/** "Suspect" key = contains an underscore (signature of a raw ERP-style xlsx
+ *  header "Material_principal", "Largo_cm"). A clean humanized French key has
+ *  no underscore. A simple, robust criterion that avoids the baseline drift
+ *  where Claude "simplifies" an already-clean humanized key
+ *  (e.g. "DURÉE DE GARANTIE (EN ANNÉES) :" → "GARANTIE :"). */
 const SUSPECT_KEY_RE = /_/;
 
 export interface SpecNormalizerOptions {
   products: PlanProduct[];
-  /** Liste des spec keys vues dans le template (extraite par le caller depuis
-   *  les blocks ProductBlock detectes en Phase 1). */
+  /** List of spec keys seen in the template (extracted by the caller from the
+   *  ProductBlock blocks detected in Phase 1). */
   templateSpecKeys: string[];
   workDir: string;
   projectDir: string;
@@ -80,10 +80,10 @@ export async function normalizeSpecs(
       keysRemapped: 0,
     };
   }
-  // Trigger seulement si les product keys sont VRAIMENT exotiques (code ERP
-  // brut ASCII). Une key francaise humanisee propre n'est pas a remapper, sinon
-  // Claude "simplifie" abusivement (ex "DURÉE DE GARANTIE (EN ANNÉES) :" →
-  // "GARANTIE :" parce que le template alloue parle de "GARANTIE :").
+  // Trigger only if the product keys are REALLY exotic (raw ASCII ERP code).
+  // A clean humanized French key should not be remapped, otherwise Claude
+  // "simplifies" abusively (e.g. "DURÉE DE GARANTIE (EN ANNÉES) :" →
+  // "GARANTIE :" because the allocated template mentions "GARANTIE :").
   let suspectCount = 0;
   for (const pk of productKeys) if (SUSPECT_KEY_RE.test(pk)) suspectCount++;
   const suspectRatio = suspectCount / productKeys.size;
@@ -98,7 +98,7 @@ export async function normalizeSpecs(
     };
   }
 
-  // Tente Gemini en premier (gratuit + rapide). Fallback Claude si KO.
+  // Try Gemini first (free + fast). Fallback to Claude on failure.
   const notes: string[] = [];
   let mapping: Record<string, string> = {};
   let costUsd: number | undefined;
@@ -125,7 +125,7 @@ export async function normalizeSpecs(
     usedFallback = true;
   }
 
-  // Fallback Claude si Gemini KO
+  // Fallback to Claude if Gemini failed
   if (usedFallback || Object.keys(mapping).length === 0) {
     const auditPath = path.join(opts.workDir, 'spec-mapping.json');
     await fs.writeFile(auditPath, JSON.stringify({ mapping: {}, notes: [] }, null, 2), 'utf8');
@@ -166,9 +166,10 @@ export async function normalizeSpecs(
       notes.push('parse spec-mapping failed: ' + (e as Error).message);
       return { ran: false, durationMs: Date.now() - t0, notes, keysRemapped: 0 };
     }
-  } // fin fallback Claude
-  // Mutation in-place : substitutor lit les spec keys par reference produit,
-  // donc remapper en place suffit. Pas besoin de recreer analysis/allocation.
+  } // end Claude fallback
+  // In-place mutation: the substitutor reads the spec keys by product
+  // reference, so remapping in place is enough. No need to rebuild
+  // analysis/allocation.
   let remapped = 0;
   for (const p of opts.products) {
     for (const s of p.specs) {

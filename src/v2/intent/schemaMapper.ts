@@ -1,10 +1,10 @@
 /**
  * Mapper ExtractedPage + ProductBlock → PageSchema.
  *
- * Reutilise les detections existantes (classify, blockDetector) plutot que
- * de re-extraire les zones depuis raw_spans. Le but est juste de PRESENTER
- * les zones deja identifiees sous une forme stable et lisible pour Claude
- * et pour le resolver d'intents.
+ * Reuses the existing detections (classify, blockDetector) rather than
+ * re-extracting the zones from raw_spans. The goal is just to PRESENT the
+ * already-identified zones in a stable, readable form for Claude and for the
+ * intent resolver.
  */
 import type { ExtractedPage, TextSpan, Bbox } from '../types';
 import type { ProductBlock } from '../engine/blockDetector';
@@ -24,10 +24,10 @@ interface BuildSchemaInput {
   blocks: ProductBlock[];
 }
 
-/** Construit le PageSchema. Itere sur TOUS les ProductBlock detectes (le
- *  tableau `products` est la source de verite). Les champs top-level
- *  (`title`, `image_main`, `specs_block`...) reflètent product[0] pour
- *  rétro-compat des targets historiques `page_N.title`. */
+/** Builds the PageSchema. Iterates over ALL detected ProductBlocks (the
+ *  `products` array is the source of truth). The top-level fields
+ *  (`title`, `image_main`, `specs_block`...) reflect product[0] for
+ *  backward-compat of the legacy targets `page_N.title`. */
 export function buildPageSchema(input: BuildSchemaInput): PageSchema {
   const { page, kind, blocks } = input;
   const schema: PageSchema = {
@@ -37,8 +37,8 @@ export function buildPageSchema(input: BuildSchemaInput): PageSchema {
     zones: {},
   };
 
-  // Zones venant des slots typés (classify a deja identifie page_number,
-  // section_banner, etc.). On prend le premier de chaque type.
+  // Zones coming from the typed slots (classify already identified
+  // page_number, section_banner, etc.). We take the first of each type.
   for (const slot of page.slots) {
     if (slot.type === 'page_number' && !schema.zones.page_number) {
       const lbl = (slot as { label: TextSpan }).label;
@@ -50,11 +50,11 @@ export function buildPageSchema(input: BuildSchemaInput): PageSchema {
     }
   }
 
-  // Construit un ProductBlockZone par ProductBlock detecte.
+  // Build one ProductBlockZone per detected ProductBlock.
   const products: ProductBlockZone[] = blocks.map(buildProductZone);
   if (products.length > 0) {
     schema.zones.products = products;
-    // Rétro-compat : product[0] alimente aussi les champs top-level.
+    // Backward-compat: product[0] also feeds the top-level fields.
     const first = products[0];
     if (first.title) schema.zones.title = first.title;
     if (first.reference) schema.zones.reference = first.reference;

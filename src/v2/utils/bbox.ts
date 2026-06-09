@@ -1,5 +1,5 @@
 /**
- * Utilitaires bbox factorisés (etait dupliqué dans substitutor, tocFromTemplate, resolver).
+ * Bbox utilities factored out (was duplicated across substitutor, tocFromTemplate, resolver).
  */
 import type { Bbox } from '../types';
 

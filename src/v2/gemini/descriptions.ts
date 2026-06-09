@@ -1,12 +1,12 @@
 /**
- * Descriptions marketing par section via Gemini Pro (alternative a Claude Haiku).
+ * Marketing descriptions per section via Gemini Pro (alternative to Claude Haiku).
  *
- * Contract identique a generateDescriptions : meme types I/O pour swap drop-in.
- * Avantage Gemini : gratuit free tier, pas d'expiration auth, plus rapide
- * (HTTP direct vs spawn CLI).
+ * Contract identical to generateDescriptions: same I/O types for a drop-in swap.
+ * Gemini advantage: free tier, no auth expiration, faster (direct HTTP vs
+ * CLI spawn).
  *
- * Le prompt reprend la meme logique : 1 phrase factuelle par section, sans
- * cliches marketing, basee sur les specs des produits.
+ * The prompt follows the same logic: 1 factual sentence per section, without
+ * marketing cliches, based on the products' specs.
  */
 
 import { isGeminiAvailable } from './client';
@@ -41,14 +41,14 @@ export async function generateDescriptionsGemini(
   }
 
   const prompt = buildPrompt(opts.sections);
-  // pref 'speed' : API flash-lite par defaut (rapide, ~1s). Le CLI Pro est
-  // VARIABLE (8-88s observe) → pas acceptable sur le chemin standard. Le CLI
-  // reste en FALLBACK si l'API tape son quota (429). Decision : vitesse par
-  // defaut, le gain qualite Pro ne vaut pas +60s d'attente systematique.
+  // pref 'speed': flash-lite API by default (fast, ~1s). The Pro CLI is
+  // VARIABLE (8-88s observed) → not acceptable on the standard path. The CLI
+  // stays as a FALLBACK if the API hits its quota (429). Decision: speed by
+  // default, the Pro quality gain isn't worth a systematic +60s wait.
   const res = await routedGenerateText({
     prompt,
     pref: 'speed',
-    temperature: 0.6, // un peu de variation pour eviter phrases robotiques
+    temperature: 0.6, // a bit of variation to avoid robotic sentences
     maxOutputTokens: 2048,
     module: 'descriptions',
   });
@@ -63,7 +63,7 @@ export async function generateDescriptionsGemini(
     return { ran: true, durationMs: Date.now() - t0, notes, descriptions: {} };
   }
 
-  // Validation : ne garde que les sections demandees
+  // Validation: keep only the requested sections
   const validLabels = new Set(opts.sections.map((s) => s.label));
   const descriptions: Record<string, string> = {};
   for (const [k, v] of Object.entries(parsed)) {

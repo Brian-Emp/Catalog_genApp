@@ -1,19 +1,19 @@
 /**
- * Helpers de "fit" : estimation de largeur de texte, wrap par mots,
- * shrink-to-fit. Utilises par les reflow specialises (reflowName,
+ * "Fit" helpers: text width estimation, word wrapping,
+ * shrink-to-fit. Used by the specialized reflow modules (reflowName,
  * reflowSpecs etc.).
  *
- * Ces helpers sont CO-LOCALISES avec le module reflow/ plutot que dans
- * substitutor.ts pour decoupler. substitutor.ts re-exporte
- * estimateTextWidth + TEXT_WIDTH_COEFS pour conserver les callers
- * existants (engineOrchestrator).
+ * These helpers are CO-LOCATED with the reflow/ module rather than in
+ * substitutor.ts to decouple them. substitutor.ts re-exports
+ * estimateTextWidth + TEXT_WIDTH_COEFS to keep the existing callers
+ * (engineOrchestrator) working.
  */
 
 /**
- * Coefficients de largeur pour estimateTextWidth.
- * UPPER = majuscules tabulaires (titres, refs). DIGITS = chiffres. MIXED =
- * fallback minuscules/mixed. Calibres sur Almanach-* mais tiennent pour la
- * plupart des fonts sans-serif a corps regulier.
+ * Width coefficients for estimateTextWidth.
+ * UPPER = tabular uppercase (titles, refs). DIGITS = digits. MIXED =
+ * lowercase/mixed fallback. Calibrated on Almanach-* but hold for most
+ * regular-weight sans-serif fonts.
  */
 export const TEXT_WIDTH_COEFS = {
   upper: 0.65,
@@ -21,32 +21,32 @@ export const TEXT_WIDTH_COEFS = {
   mixed: 0.55,
 } as const;
 
-/** Estime la largeur en pt d'un texte rendu a fontSize donnee. Heuristique
- *  sans-serif (Almanach/Helvetica), suffisante pour les decisions reflow. */
+/** Estimates the width in pt of a text rendered at a given fontSize.
+ *  Sans-serif heuristic (Almanach/Helvetica), good enough for reflow decisions. */
 export function estimateTextWidth(text: string, fontSize: number): number {
   let w = 0;
   for (const c of text) {
     if (c >= 'A' && c <= 'Z') w += TEXT_WIDTH_COEFS.upper;
     else if (c >= '0' && c <= '9') w += TEXT_WIDTH_COEFS.digits;
-    // Majuscules accentuees (ÉÈÊÀÙÇ...) : meme largeur que majuscules
+    // Accented uppercase (ÉÈÊÀÙÇ...): same width as uppercase
     else if (c.toUpperCase() === c && c.toLowerCase() !== c) w += TEXT_WIDTH_COEFS.upper;
-    // Espaces / ponctuation etroite
+    // Spaces / narrow punctuation
     else if (c === ' ' || c === ':' || c === '.' || c === ',') w += 0.3;
-    // Caracteres larges (M, W, m, w en minuscule)
+    // Wide characters (M, W, lowercase m, w)
     else if ('mwMW'.includes(c)) w += 0.7;
-    // Caracteres etroits (i, l, t, f, j, 1, !, |)
+    // Narrow characters (i, l, t, f, j, 1, !, |)
     else if ('iltfj!|'.includes(c)) w += 0.35;
     else w += TEXT_WIDTH_COEFS.mixed;
   }
   return w * fontSize;
 }
 
-/** Particules en fin de ligne1 a retirer (orphelins typographiques : on
- *  evite de finir une ligne par "et", "de", "ou"...). Utilise apres wrap. */
+/** Particles to strip from the end of line 1 (typographic orphans: we avoid
+ *  ending a line with "et", "de", "ou"...). Applied after wrapping. */
 const TRAILING_PARTICLES_RE = /\s+(à|de|du|des|en|et|ou|le|la|les|un|une|au|aux|par|pour|sur|avec|dans|que|qui|d|l)\s*$/i;
 const TRAILING_PUNCT_RE = /[\s,;:.\-]+$/;
 
-/** Nettoie une fin de ligne : ponctuation tombante + particules orphelines. */
+/** Cleans up a line ending: dangling punctuation + orphan particles. */
 export function cleanupLineEnd(line: string): string {
   let cleaned = line.trimEnd();
   cleaned = cleaned.replace(TRAILING_PUNCT_RE, '');
@@ -55,29 +55,29 @@ export function cleanupLineEnd(line: string): string {
 }
 
 export interface SplitForWrap {
-  /** Texte de la ligne 1 (nettoye). */
+  /** Text of line 1 (cleaned up). */
   line1: string;
-  /** Texte de la ligne 2 (trim left). Vide si tout tient sur ligne 1. */
+  /** Text of line 2 (left-trimmed). Empty if everything fits on line 1. */
   line2: string;
-  /** True si la coupe est tombee sur un breakpoint semantique (and/or/.../...).
-   *  Sert au caller pour decider d'eventuels traitements supplementaires. */
+  /** True if the break landed on a semantic breakpoint (and/or/.../...).
+   *  Lets the caller decide on any additional processing. */
   cleanBreak: boolean;
 }
 
 /**
- * Split un texte en 2 lignes pour wrap, en privilegiant les breakpoints
- * semantiques. Ordre de preference des coupes :
- *   1. ';'        — separateur fort
- *   2. ','        — separateur naturel
+ * Splits a text into 2 lines for wrapping, favoring semantic breakpoints.
+ * Break preference order:
+ *   1. ';'        — strong separator
+ *   2. ','        — natural separator
  *   3. ' / '      — alternative
- *   4. ' - '      — pause longue
- *   5. ' et ', ' ou '  — conjonction (coupe AVANT le mot de liaison pour
- *                       eviter l'orphelin en fin de ligne)
- *   6. ' '        — espace simple (fallback)
- *   7. coupe car a car (fallback ultime)
+ *   4. ' - '      — long pause
+ *   5. ' et ', ' ou '  — conjunction (break BEFORE the linking word to
+ *                       avoid the orphan at the end of the line)
+ *   6. ' '        — plain space (fallback)
+ *   7. char-by-char break (ultimate fallback)
  *
- * Pour chaque groupe, on prend le breakpoint le plus a droite (=  ligne 1
- * la plus longue) qui fait tenir line1 dans maxWidth.
+ * For each group, we take the rightmost breakpoint (= longest line 1) that
+ * still fits line1 within maxWidth.
  */
 export function splitForWrap(text: string, maxWidth: number, fontSize: number): SplitForWrap {
   const trimmed = text.trim();
@@ -85,8 +85,8 @@ export function splitForWrap(text: string, maxWidth: number, fontSize: number): 
   if (estimateTextWidth(trimmed, fontSize) <= maxWidth) {
     return { line1: trimmed, line2: '', cleanBreak: true };
   }
-  // Collecte des breakpoints candidats. idx = position de coupe (line2 commence
-  // a cet idx). group = priorite (plus petit = preference plus forte).
+  // Collect candidate breakpoints. idx = break position (line2 starts at
+  // this idx). group = priority (smaller = stronger preference).
   interface BP { idx: number; group: number }
   const bps: BP[] = [];
   for (let i = 0; i < trimmed.length; i++) {
@@ -98,14 +98,14 @@ export function splitForWrap(text: string, maxWidth: number, fontSize: number): 
     else if (c === '-' && trimmed[i - 1] === ' ' && trimmed[i + 1] === ' ')
       bps.push({ idx: i + 1, group: 4 });
     else if (c === ' ') {
-      // Detection " et " / " ou " : on coupe AVANT le mot de liaison (l'espace
-      // qui le precede), pour que "et"/"ou" demarre la ligne 2 (regle typo fr).
+      // " et " / " ou " detection: break BEFORE the linking word (the space
+      // preceding it), so "et"/"ou" starts line 2 (French typography rule).
       const next = trimmed.slice(i + 1, i + 4);
       if (next === 'et ' || next === 'ou ') bps.push({ idx: i, group: 5 });
       else bps.push({ idx: i, group: 6 });
     }
   }
-  // Pour chaque groupe, prendre le break le plus a droite qui tient.
+  // For each group, take the rightmost break that fits.
   for (const group of [1, 2, 3, 4, 5, 6]) {
     const candidates = bps.filter((b) => b.group === group).sort((a, b) => b.idx - a.idx);
     for (const bp of candidates) {
@@ -117,7 +117,7 @@ export function splitForWrap(text: string, maxWidth: number, fontSize: number): 
       }
     }
   }
-  // Fallback : coupe brute caractere par caractere
+  // Fallback: brute char-by-char break
   for (let i = trimmed.length; i > 0; i--) {
     if (estimateTextWidth(trimmed.slice(0, i), fontSize) <= maxWidth) {
       return {
@@ -131,10 +131,10 @@ export function splitForWrap(text: string, maxWidth: number, fontSize: number): 
 }
 
 /**
- * Coupe un texte en lignes qui tiennent dans maxWidth.
- * Greedy par mots : on ajoute le mot suivant si ca tient, sinon on demarre
- * une nouvelle ligne. Si un seul mot depasse → on l'ecrit quand meme sur
- * sa propre ligne (overflow accepte sur cette ligne, le caller decidera).
+ * Breaks a text into lines that fit within maxWidth.
+ * Greedy by words: we add the next word if it fits, otherwise we start a
+ * new line. If a single word overflows → we still write it on its own line
+ * (overflow accepted on that line, the caller will decide).
  */
 export function wrapByWords(text: string, maxWidth: number, fontSize: number): string[] {
   const words = text.trim().split(/\s+/).filter(Boolean);
@@ -156,14 +156,14 @@ export function wrapByWords(text: string, maxWidth: number, fontSize: number): s
 }
 
 /**
- * Tronque un texte avec ellipse pour qu'il tienne dans maxWidth.
- * Conserve les mots entiers si possible.
+ * Truncates a text with an ellipsis so it fits within maxWidth.
+ * Keeps whole words where possible.
  */
 export function truncateWithEllipsis(text: string, maxWidth: number, fontSize: number): string {
   const ELL = '…';
   if (estimateTextWidth(text, fontSize) <= maxWidth) return text;
   const ellW = estimateTextWidth(ELL, fontSize);
-  // Coupe au dernier espace tant que ca depasse
+  // Cut at the last space as long as it overflows
   let cut = text.length;
   while (cut > 0) {
     const lastSpace = text.lastIndexOf(' ', cut - 1);
@@ -177,38 +177,38 @@ export function truncateWithEllipsis(text: string, maxWidth: number, fontSize: n
 }
 
 export interface FitOptions {
-  /** Largeur max disponible (pt). Si <= 0, no-op. */
+  /** Max available width (pt). If <= 0, no-op. */
   maxWidth: number;
-  /** Taille originale (pt). */
+  /** Original size (pt). */
   originalSize: number;
-  /** Taille minimale acceptable (pt). En dessous on tronque. */
+  /** Minimum acceptable size (pt). Below this we truncate. */
   minSize: number;
-  /** Nombre de lignes max. Default 1. */
+  /** Max number of lines. Default 1. */
   maxLines?: number;
-  /** Pas de decrement de la font lors du shrink. Default 0.5pt. */
+  /** Font decrement step during shrink. Default 0.5pt. */
   shrinkStep?: number;
 }
 
 export interface FitResult {
-  /** Lignes finales (1 ou plusieurs). */
+  /** Final lines (1 or more). */
   lines: string[];
-  /** Taille de font appliquee (peut etre inferieure a originalSize). */
+  /** Applied font size (may be smaller than originalSize). */
   fontSize: number;
-  /** True si on a du tronquer (ajout d'une ellipse). */
+  /** True if we had to truncate (ellipsis added). */
   truncated: boolean;
-  /** Strategie appliquee (debug). */
+  /** Applied strategy (debug). */
   strategy: 'fits-as-is' | 'wrapped' | 'shrunk' | 'wrapped-shrunk' | 'truncated';
 }
 
 /**
- * Strategie "wrap d'abord puis shrink" :
- *   1. Tente 1 ligne a originalSize : si ok → return.
- *   2. Wrap a originalSize jusqu'a maxLines : si toutes les lignes tiennent → return.
- *   3. Shrink la font (de originalSize a minSize par pas shrinkStep) en
- *      gardant maxLines : si une taille fait tenir toutes les lignes → return.
- *   4. Au pire : truncate la derniere ligne avec ellipse a la minSize.
+ * "Wrap first then shrink" strategy:
+ *   1. Try 1 line at originalSize: if ok → return.
+ *   2. Wrap at originalSize up to maxLines: if all lines fit → return.
+ *   3. Shrink the font (from originalSize to minSize in shrinkStep steps)
+ *      keeping maxLines: if a size makes all lines fit → return.
+ *   4. Worst case: truncate the last line with an ellipsis at minSize.
  *
- * Privilegie la taille de font (vs hauteur) — voir choix utilisateur.
+ * Favors font size (vs height) — see user's choice.
  */
 export function fitWrapThenShrink(text: string, opts: FitOptions): FitResult {
   const maxLines = Math.max(1, opts.maxLines ?? 1);
@@ -218,12 +218,12 @@ export function fitWrapThenShrink(text: string, opts: FitOptions): FitResult {
     return { lines: [trimmed], fontSize: opts.originalSize, truncated: false, strategy: 'fits-as-is' };
   }
 
-  // 1. Tente 1 ligne a originalSize
+  // 1. Try 1 line at originalSize
   if (estimateTextWidth(trimmed, opts.originalSize) <= opts.maxWidth) {
     return { lines: [trimmed], fontSize: opts.originalSize, truncated: false, strategy: 'fits-as-is' };
   }
 
-  // 2. Wrap a originalSize, jusqu'a maxLines
+  // 2. Wrap at originalSize, up to maxLines
   const wrappedOrig = wrapByWords(trimmed, opts.maxWidth, opts.originalSize);
   const allFitOrig = wrappedOrig.length <= maxLines &&
     wrappedOrig.every((l) => estimateTextWidth(l, opts.originalSize) <= opts.maxWidth);
@@ -231,36 +231,36 @@ export function fitWrapThenShrink(text: string, opts: FitOptions): FitResult {
     return { lines: wrappedOrig, fontSize: opts.originalSize, truncated: false, strategy: 'wrapped' };
   }
 
-  // 3. Shrink : on essaie des tailles decroissantes. A chaque taille, on
-  //    re-wrap (la coupe peut tomber differemment si les mots tiennent mieux).
+  // 3. Shrink: try decreasing sizes. At each size, re-wrap (the break may
+  //    land differently if the words fit better).
   for (let s = opts.originalSize - shrinkStep; s >= opts.minSize; s -= shrinkStep) {
-    // Premier check 1 ligne a cette taille
+    // First check 1 line at this size
     if (estimateTextWidth(trimmed, s) <= opts.maxWidth) {
       return { lines: [trimmed], fontSize: s, truncated: false, strategy: 'shrunk' };
     }
-    // Sinon wrap
+    // Otherwise wrap
     const wrapped = wrapByWords(trimmed, opts.maxWidth, s);
     if (wrapped.length <= maxLines && wrapped.every((l) => estimateTextWidth(l, s) <= opts.maxWidth)) {
       return { lines: wrapped, fontSize: s, truncated: false, strategy: 'wrapped-shrunk' };
     }
   }
 
-  // 4. Truncate a la minSize : on wrap, on garde les maxLines premieres,
-  //    on tronque la derniere avec ellipse.
+  // 4. Truncate at minSize: wrap, keep the first maxLines, truncate the
+  //    last one with an ellipsis.
   const wrappedMin = wrapByWords(trimmed, opts.maxWidth, opts.minSize);
   const kept = wrappedMin.slice(0, maxLines);
   if (kept.length === 0) {
     return { lines: [truncateWithEllipsis(trimmed, opts.maxWidth, opts.minSize)],
              fontSize: opts.minSize, truncated: true, strategy: 'truncated' };
   }
-  // Si on a coupe au-dela de maxLines, mettre l'ellipse sur la derniere kept
+  // If we cut beyond maxLines, put the ellipsis on the last kept line
   if (wrappedMin.length > maxLines) {
     const lastIdx = kept.length - 1;
-    // Reconstitue le texte residuel (kept[lastIdx] + reste) puis truncate
+    // Rebuild the residual text (kept[lastIdx] + remainder) then truncate
     const residual = wrappedMin.slice(lastIdx).join(' ');
     kept[lastIdx] = truncateWithEllipsis(residual, opts.maxWidth, opts.minSize);
   } else {
-    // Sinon juste la derniere ligne (qui pourrait deja deborder)
+    // Otherwise just the last line (which might already overflow)
     const lastIdx = kept.length - 1;
     if (estimateTextWidth(kept[lastIdx], opts.minSize) > opts.maxWidth) {
       kept[lastIdx] = truncateWithEllipsis(kept[lastIdx], opts.maxWidth, opts.minSize);

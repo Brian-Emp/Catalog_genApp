@@ -1,16 +1,16 @@
 /**
- * Boucle iterative Claude → IntentOps → re-render.
+ * Iterative loop Claude → IntentOps → re-render.
  *
- * Apres le 1er render C++, on rastere un echantillon de pages produit
- * substituees, on demande a Claude vision des IntentOps correctives, on
- * les resout en Operations bas niveau et on les injecte dans le plan.json
- * pour un nouveau passage du binaire C++.
+ * After the 1st C++ render, we rasterize a sample of substituted product
+ * pages, ask Claude vision for corrective IntentOps, resolve them into
+ * low-level Operations, and inject them into plan.json for another pass of
+ * the C++ binary.
  *
- * Iteration : on s'arrete des qu'une passe ne produit plus aucun intent,
- * ou apres `maxIterations` passes (defaut 2).
+ * Iteration: we stop as soon as a pass produces no more intents, or after
+ * `maxIterations` passes (default 2).
  *
- * Le binaire C++ ne bouge pas : on ne fait qu'ajouter des Operations a
- * `pages[i].render.operations` et reecrire plan.json.
+ * The C++ binary stays put: we only add Operations to
+ * `pages[i].render.operations` and rewrite plan.json.
  */
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -25,35 +25,35 @@ import type { IntentOp } from './intent';
 export interface IntentLoopOptions {
   outPdfPath: string;
   plan: Plan;
-  /** Schemas indexes par sourcePage (pas par finalNum — un meme template
-   *  page peut etre substitue plusieurs fois mais on prend le 1er). */
+  /** Schemas indexed by sourcePage (not by finalNum — the same template
+   *  page may be substituted several times but we take the 1st). */
   schemas: Map<number, PageSchema>;
-  /** Allocations produits indexees par sourcePage. Sert a passer la liste
-   *  des produits ATTENDUS dans le prompt Claude pour qu'il ne confonde
-   *  pas substitution vs erreur. */
+  /** Product allocations indexed by sourcePage. Used to pass the list of
+   *  EXPECTED products into the Claude prompt so it doesn't confuse
+   *  substitution with an error. */
   allocations?: Map<number, PageAllocation>;
   workDir: string;
   projectDir: string;
-  /** Callback qui re-render le PDF apres mutation du plan. L'orchestrator
-   *  passe la fermeture vers runBinary(render) — on evite ainsi de dupliquer
-   *  la connaissance des paths (binary, template, templates, assets). */
+  /** Callback that re-renders the PDF after mutating the plan. The
+   *  orchestrator passes the closure over runBinary(render) — this avoids
+   *  duplicating knowledge of the paths (binary, template, templates, assets). */
   rerender: (planPath: string) => Promise<{ ok: boolean; stderr: string }>;
   claudeBin?: string;
-  /** Nombre max de pages produit rasterisees + envoyees a Claude par passe.
-   *  Defaut 5 (plafond cout/latence). */
+  /** Max number of product pages rasterized + sent to Claude per pass.
+   *  Default 5 (cost/latency cap). */
   samplePages?: number;
-  /** Nombre max de passes Claude → resolve → re-render. Defaut 2. */
+  /** Max number of Claude → resolve → re-render passes. Default 2. */
   maxIterations?: number;
 }
 
 export interface IntentLoopResult {
   ran: boolean;
   iterations: number;
-  /** Total IntentOps recues de Claude (toutes passes confondues). */
+  /** Total IntentOps received from Claude (across all passes). */
   totalIntents: number;
-  /** Total Operations bas niveau injectees dans le plan. */
+  /** Total low-level Operations injected into the plan. */
   totalOps: number;
-  /** Total IntentOps non resolues (target invalide, etc.). */
+  /** Total unresolved IntentOps (invalid target, etc.). */
   totalUnresolved: number;
   durationMs: number;
   costUsd: number;
@@ -62,7 +62,7 @@ export interface IntentLoopResult {
 
 const DEFAULT_SAMPLE = 5;
 const DEFAULT_MAX_ITER = 2;
-/** Budget max Claude en USD. Au-dela, la boucle s'arrete. */
+/** Max Claude budget in USD. Beyond it, the loop stops. */
 const MAX_COST_USD = 1.0;
 
 export async function runIntentLoop(opts: IntentLoopOptions): Promise<IntentLoopResult> {
@@ -75,7 +75,7 @@ export async function runIntentLoop(opts: IntentLoopOptions): Promise<IntentLoop
   let totalUnresolved = 0;
   let costUsd = 0;
 
-  // Indices des pages substituees (mode operations) avec un schema dispo.
+  // Indices of the substituted pages (operations mode) with a schema available.
   const candidates: { finalIdx: number; finalNum: number; sourcePage: number; schema: PageSchema }[] = [];
   for (let i = 0; i < opts.plan.pages.length; i++) {
     const p = opts.plan.pages[i];
@@ -99,14 +99,14 @@ export async function runIntentLoop(opts: IntentLoopOptions): Promise<IntentLoop
   await fs.mkdir(auditDir, { recursive: true });
   const planPath = path.join(opts.workDir, 'plan.json');
 
-  // Pour detecter la stagnation : on hash les intents de l'iter precedente.
-  // Si l'iter courante propose exactement le meme set d'intents, c'est que
-  // les corrections appliquees n'ont rien debloque (Claude voit le meme defaut
-  // et propose le meme fix qui ne marche pas) — on stop.
+  // To detect stagnation: we hash the intents of the previous iteration.
+  // If the current iteration proposes exactly the same set of intents, it
+  // means the applied corrections unblocked nothing (Claude sees the same
+  // defect and proposes the same fix that doesn't work) — we stop.
   let prevIntentsHash: string | null = null;
   let iterations = 0;
   for (let iter = 0; iter < maxIterations; iter++) {
-    // Budget cap : stop si on a deja depense trop
+    // Budget cap: stop if we've already spent too much
     if (costUsd >= MAX_COST_USD) {
       notes.push(`budget cap $${MAX_COST_USD} atteint ($${costUsd.toFixed(2)}) — boucle stop`);
       break;
@@ -115,7 +115,7 @@ export async function runIntentLoop(opts: IntentLoopOptions): Promise<IntentLoop
     const iterDir = path.join(auditDir, `iter-${iterations}`);
     await fs.mkdir(iterDir, { recursive: true });
 
-    // Rasterise les pages echantillonees du PDF courant.
+    // Rasterize the sampled pages of the current PDF.
     const rendered: { sample: typeof sampled[number]; pngPath: string }[] = [];
     for (const s of sampled) {
       const png = await renderPagePng(opts.outPdfPath, s.finalNum, iterDir);
@@ -126,7 +126,7 @@ export async function runIntentLoop(opts: IntentLoopOptions): Promise<IntentLoop
       break;
     }
 
-    // Appel Claude vision en parallele sur chaque page.
+    // Claude vision call in parallel on each page.
     const suggestions = await Promise.all(
       rendered.map((r) => {
         const alloc = opts.allocations?.get(r.sample.sourcePage);
@@ -182,10 +182,10 @@ export async function runIntentLoop(opts: IntentLoopOptions): Promise<IntentLoop
       notes.push(`iter ${iterations} : ${iterIntents} intents recus, 0 resolus — boucle stop`);
       break;
     }
-    // Stagnation : meme set d'intents qu'a l'iter precedente → on stoppe
-    // pour eviter de payer Claude sur un fix qui ne debloque pas le defaut
-    // (typiquement : replace_text sur une bbox trop etroite, le texte reste
-    // tronque, Claude re-propose le meme intent).
+    // Stagnation: same set of intents as the previous iteration → we stop
+    // to avoid paying Claude for a fix that doesn't unblock the defect
+    // (typically: replace_text on a bbox that's too narrow, the text stays
+    // truncated, Claude re-proposes the same intent).
     const curHash = hashIntents(allIntents);
     if (prevIntentsHash !== null && curHash === prevIntentsHash) {
       notes.push(`iter ${iterations} : meme set d'intents qu'iter ${iterations - 1} — stagnation, boucle stop`);
@@ -193,7 +193,7 @@ export async function runIntentLoop(opts: IntentLoopOptions): Promise<IntentLoop
     }
     prevIntentsHash = curHash;
 
-    // Reecrit plan.json et re-render via callback orchestrator.
+    // Rewrite plan.json and re-render via the orchestrator callback.
     await fs.writeFile(planPath, JSON.stringify(opts.plan, null, 2), 'utf8');
     const rr = await opts.rerender(planPath);
     if (!rr.ok) {
@@ -221,9 +221,9 @@ function appendOperations(plan: Plan, finalIdx: number, ops: Operation[]): void 
   page.render.operations.push(...ops);
 }
 
-/** Hash deterministe d'un set d'intents pour detecter une iter identique
- *  a la precedente. JSON.stringify trie pas → on serialise apres tri par
- *  signature stable (op|target|content). */
+/** Deterministic hash of a set of intents to detect an iteration identical
+ *  to the previous one. JSON.stringify doesn't sort → we serialize after
+ *  sorting by a stable signature (op|target|content). */
 function hashIntents(intents: IntentOp[]): string {
   const sigs = intents.map((i) => {
     const base = `${i.op}|${i.target}`;

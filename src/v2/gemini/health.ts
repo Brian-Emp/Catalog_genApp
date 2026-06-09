@@ -1,11 +1,11 @@
 /**
- * Health check Gemini : verifie la presence de la cle, l'accessibilite de
- * l'API et le statut du quota par un appel minimal (1 token).
+ * Gemini health check: verifies the presence of the key, API accessibility,
+ * and quota status via a minimal call (1 token).
  *
- * Utilise pour :
- *  - badge UI "Gemini OK / KO / quota"
- *  - log de demarrage pipeline (warning si KO)
- *  - tests E2E precondition
+ * Used for:
+ *  - "Gemini OK / KO / quota" UI badge
+ *  - pipeline startup log (warning if KO)
+ *  - E2E test precondition
  */
 
 import { generateText, GEMINI_MODELS, isGeminiAvailable, resolveGeminiKey } from './client';
@@ -14,32 +14,32 @@ export type GeminiHealthStatus = 'ok' | 'no_key' | 'quota_exceeded' | 'auth_erro
 
 export interface GeminiHealthResult {
   status: GeminiHealthStatus;
-  /** True si on peut appeler Gemini (status === 'ok'). */
+  /** True if Gemini can be called (status === 'ok'). */
   ok: boolean;
-  /** Modele teste. */
+  /** Model tested. */
   model: string;
-  /** Latence du test (ms). */
+  /** Test latency (ms). */
   durationMs: number;
-  /** Message d'erreur si KO. */
+  /** Error message if KO. */
   error?: string;
-  /** Hint pour fix (instruction utilisateur). */
+  /** Hint for fixing (user instruction). */
   hint?: string;
 }
 
 /**
- * Run un health check Gemini. Appel minimal (1 prompt court, 1 token max).
- * Coût : negligeable. Timeout intrinseque a fetch (par defaut).
+ * Runs a Gemini health check. Minimal call (1 short prompt, 1 token max).
+ * Cost: negligible. Timeout intrinsic to fetch (default).
  *
- * Si check OK : retourne { ok:true }. Si KO : indique la nature de l'erreur
- * + un hint utilisateur.
+ * If the check is OK: returns { ok:true }. If KO: indicates the nature of the
+ * error + a user hint.
  */
 export async function checkGeminiHealth(): Promise<GeminiHealthResult> {
   const t0 = Date.now();
-  // Health = sonde 1 SEUL modele fiable (noCascade), PAS la cascade qualite :
-  // sinon on traverserait les modeles pleins 20/j (souvent cuits) → lent. On
-  // sonde 3.1-flash-lite (gros buffer 500/j, quasi toujours dispo) → reponse
-  // rapide + representative de "Gemini joignable ?". S'il est KO, Gemini l'est
-  // vraiment (le gros filet est tombe).
+  // Health = probe 1 SINGLE reliable model (noCascade), NOT the quality cascade:
+  // otherwise we'd traverse the full 20/day models (often burned out) → slow. We
+  // probe 3.1-flash-lite (large 500/day buffer, almost always available) → fast
+  // response + representative of "is Gemini reachable?". If it's KO, Gemini truly
+  // is (the big safety net has fallen).
   const model = GEMINI_MODELS.flash31Lite;
 
   if (!(await isGeminiAvailable())) {
@@ -57,15 +57,15 @@ export async function checkGeminiHealth(): Promise<GeminiHealthResult> {
     prompt: 'Reponds juste le mot OK.',
     model,
     temperature: 0,
-    // Min 32 : gemini-2.5-flash inclut un "thinking" budget interne avant
-    // l'output, donc maxOutputTokens=1 coupe avant le moindre token visible
-    // (finishReason=MAX_TOKENS sans text).
+    // Min 32: gemini-2.5-flash includes an internal "thinking" budget before
+    // the output, so maxOutputTokens=1 cuts off before any visible token
+    // (finishReason=MAX_TOKENS with no text).
     maxOutputTokens: 32,
     module: 'health',
-    // Sonde 1 seul modele (pas de fan-out cascade) → rapide + predictible.
+    // Probe a single model (no cascade fan-out) → fast + predictable.
     noCascade: true,
-    // Fast-fail : 4s cap, sinon le badge UI freeze. Si quota epuise, on
-    // veut savoir vite (quota_exceeded), pas attendre 53s pour retry.
+    // Fast-fail: 4s cap, otherwise the UI badge freezes. If quota is exhausted,
+    // we want to know quickly (quota_exceeded), not wait 53s for a retry.
     maxRetryDelayMs: 4000,
   });
   const durationMs = Date.now() - t0;
@@ -74,7 +74,7 @@ export async function checkGeminiHealth(): Promise<GeminiHealthResult> {
     return { status: 'ok', ok: true, model, durationMs };
   }
 
-  // Identification fine du type d'erreur
+  // Fine-grained identification of the error type
   const err = res.error ?? 'unknown';
   if (/(?<![0-9])429(?![0-9])|quota|rate.?limit|froid/i.test(err)) {
     return {
@@ -117,8 +117,8 @@ export async function checkGeminiHealth(): Promise<GeminiHealthResult> {
 }
 
 /**
- * Variante sans appel API : verifie SEULEMENT la presence de la cle.
- * Utile pour gate-keeping rapide (1ms) avant de tenter un audit.
+ * Variant without an API call: verifies ONLY the presence of the key.
+ * Useful for fast gate-keeping (1ms) before attempting an audit.
  */
 export async function quickCheckGeminiKey(): Promise<{ ok: boolean; keyPresent: boolean }> {
   const key = await resolveGeminiKey();

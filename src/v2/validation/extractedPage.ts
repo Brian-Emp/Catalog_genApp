@@ -1,11 +1,11 @@
 /**
- * Validateur pour les fichiers extracted-page.json (cf
+ * Validator for extracted-page.json files (cf
  * src/v2/schemas/extracted-page.schema.json).
  *
- * Strategie : on parcourt l'objet inconnu, on collecte TOUTES les erreurs
- * dans un accumulateur, puis on retourne soit ok(...) soit err([...]).
- * Collecter toutes les erreurs (au lieu de s'arreter au premier souci) aide
- * a debugger des extractions cassees plus vite.
+ * Strategy: we walk the unknown object, collect ALL the errors into an
+ * accumulator, then return either ok(...) or err([...]).
+ * Collecting every error (instead of stopping at the first issue) helps
+ * debug broken extractions faster.
  */
 
 import type {
@@ -31,8 +31,8 @@ import {
 import type { Result, ValidationError } from './result';
 import { err, ok } from './result';
 
-/** Point d'entree public. Prend du JSON parse (unknown) et retourne soit
- *  un ExtractedPage type, soit la liste des erreurs trouvees. */
+/** Public entry point. Takes parsed JSON (unknown) and returns either a
+ *  typed ExtractedPage, or the list of errors found. */
 export function validateExtractedPage(input: unknown): Result<ExtractedPage> {
   const errors: ValidationError[] = [];
 
@@ -72,7 +72,7 @@ function validateRawPaths(v: unknown, errors: ValidationError[]): void {
   });
 }
 
-// ─── raw_spans (optionnel mais valide si present) ──────────────────────────
+// ─── raw_spans (optional but validated if present) ─────────────────────────
 
 function validateRawSpans(v: unknown, errors: ValidationError[]): void {
   if (v === undefined) return;
@@ -124,7 +124,7 @@ function validateRawImages(v: unknown, errors: ValidationError[]): void {
   });
 }
 
-// ─── Champs top-level ──────────────────────────────────────────────────────
+// ─── Top-level fields ──────────────────────────────────────────────────────
 
 function validatePageNumber(v: unknown, errors: ValidationError[]): void {
   if (!isInteger(v) || v < 0) {
@@ -166,13 +166,13 @@ function validateSlot(v: unknown, path: string, errors: ValidationError[]): void
     errors.push({ path, message: 'doit etre un objet' });
     return;
   }
-  // Champs communs : type, id, bbox
+  // Common fields: type, id, bbox
   if (!isOneOf(v.type, SLOT_TYPES)) {
     errors.push({
       path: `${path}.type`,
       message: `doit etre l'une de : ${SLOT_TYPES.join(', ')}`,
     });
-    return; // sans type valide on ne peut pas dispatcher
+    return; // without a valid type we cannot dispatch
   }
   if (!isString(v.id) || v.id.length === 0) {
     errors.push({ path: `${path}.id`, message: 'doit etre une string non vide' });
@@ -181,7 +181,7 @@ function validateSlot(v: unknown, path: string, errors: ValidationError[]): void
     errors.push({ path: `${path}.bbox`, message: 'doit etre [x0, y0, x1, y1]' });
   }
 
-  // Dispatch sur type discriminant
+  // Dispatch on the discriminant type
   const slotType = v.type as SlotType;
   switch (slotType) {
     case 'section_banner':   validateSectionBanner(v, path, errors); break;
@@ -196,7 +196,7 @@ function validateSlot(v: unknown, path: string, errors: ValidationError[]): void
   }
 }
 
-// ─── text_span (sous-type reutilise) ───────────────────────────────────────
+// ─── text_span (reused sub-type) ───────────────────────────────────────────
 
 function validateTextSpan(v: unknown, path: string, errors: ValidationError[]): void {
   if (!isObject(v)) {
@@ -215,7 +215,7 @@ function validateOptionalTextSpan(v: unknown, path: string, errors: ValidationEr
   validateTextSpan(v, path, errors);
 }
 
-// ─── Validators par type de slot ───────────────────────────────────────────
+// ─── Validators per slot type ──────────────────────────────────────────────
 
 function validateSectionBanner(v: Record<string, unknown>, path: string, errors: ValidationError[]): void {
   validateTextSpan(v.label, `${path}.label`, errors);
@@ -320,7 +320,7 @@ function validateKeepPageRaw(v: Record<string, unknown>, path: string, errors: V
   }
 }
 
-// Inutilises mais re-exportes pour les tests qui voudraient valider isolement
+// Unused but re-exported for tests that may want to validate in isolation
 export { validateTextSpan, validateSlot };
-// Suppression warning TS6133 sur les types importes uniquement pour la signature
+// Suppresses TS6133 warning on the types imported only for the signature
 export type _internals = Bbox | TextSpan | ProductSpec | ProductVariant | Slot;

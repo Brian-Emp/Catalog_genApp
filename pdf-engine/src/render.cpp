@@ -1,18 +1,18 @@
-// Implementation de la sous-commande "render".
+// Implementation of the "render" subcommand.
 //
-// Strategie :
-// 1. Charger plan.json + tous les extracted-page.json (templates/<nom>/).
-// 2. Ouvrir template.pdf (source).
-// 3. Creer un nouveau document destination.
-// 4. Pour chaque entree dans plan.pages :
-//    a. Importer la source_page depuis le template vers le document destination.
-//    b. Si render.mode == "operations" : appliquer chaque op sur la page importee.
-// 5. Fixer les metadonnees (CreationDate, ModDate, Producer) pour la
-//    determinisme bit-exact.
-// 6. Sauvegarder le PDF final.
+// Strategy:
+// 1. Load plan.json + all the extracted-page.json (templates/<name>/).
+// 2. Open template.pdf (source).
+// 3. Create a new destination document.
+// 4. For each entry in plan.pages:
+//    a. Import the source_page from the template into the destination document.
+//    b. If render.mode == "operations": apply each op on the imported page.
+// 5. Set the metadata (CreationDate, ModDate, Producer) for
+//    bit-exact determinism.
+// 6. Save the final PDF.
 //
-// Convention bbox : le plan utilise origine top-left (idem schema). PDFium
-// utilise origine bottom-left. On convertit a chaque op qui depose un objet.
+// bbox convention: the plan uses a top-left origin (same as the schema). PDFium
+// uses a bottom-left origin. We convert at each op that places an object.
 
 #include "render.hpp"
 
@@ -35,8 +35,8 @@
 #include "pdfium_init.hpp"
 #include "../vendor/json.hpp"
 
-// stb_image : decodage PNG/JPG/BMP/etc. vers bitmap RGBA. Single header,
-// MIT, vendored sous pdf-engine/vendor/. Definition unique pour le linkage.
+// stb_image: decodes PNG/JPG/BMP/etc. into an RGBA bitmap. Single header,
+// MIT, vendored under pdf-engine/vendor/. Single definition for linkage.
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_STATIC
 #include "../vendor/stb_image.h"
@@ -47,7 +47,7 @@ using json = nlohmann::ordered_json;
 namespace fs = std::filesystem;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Cache des extracted-page.json (indexes par source page_number)
+// Cache of the extracted-page.json (indexed by source page_number)
 // ─────────────────────────────────────────────────────────────────────────────
 static std::map<int, json> g_extractedCache;
 
@@ -73,7 +73,7 @@ static void loadExtractedPages(const std::string& templatesDir) {
   }
 }
 
-// Trouve un slot par id dans le extracted-page d'une source page. nullptr si absent.
+// Finds a slot by id in the extracted-page of a source page. nullptr if absent.
 static const json* findSlot(int sourcePage, const std::string& slotId) {
   auto it = g_extractedCache.find(sourcePage);
   if (it == g_extractedCache.end()) return nullptr;
@@ -85,10 +85,10 @@ static const json* findSlot(int sourcePage, const std::string& slotId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helpers PDFium
+// PDFium helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Convertit une couleur "#rrggbb" en composantes 0-255.
+// Converts a "#rrggbb" color into 0-255 components.
 static bool parseHexColor(const std::string& hex, unsigned& r, unsigned& g, unsigned& b) {
   if (hex.size() != 7 || hex[0] != '#') return false;
   auto hx = [](char c) -> int {
@@ -105,7 +105,7 @@ static bool parseHexColor(const std::string& hex, unsigned& r, unsigned& g, unsi
   return true;
 }
 
-// Convertit UTF-8 → buffer UTF-16LE termine par 0. ASCII/Latin-1/BMP.
+// Converts UTF-8 → UTF-16LE buffer terminated by 0. ASCII/Latin-1/BMP.
 static std::vector<unsigned short> utf8ToUtf16Le(const std::string& s) {
   std::vector<unsigned short> out;
   out.reserve(s.size() + 1);
@@ -134,10 +134,10 @@ static std::vector<unsigned short> utf8ToUtf16Le(const std::string& s) {
   return out;
 }
 
-// Peint un rect colore opaque sur la page. Default = blanc (efface). Si
-// (r, g, b) precise = recouvre avec cette teinte (cas section_banner :
-// orange du cartouche template a preserver). Coords PDFium (origine
-// bottom-left).
+// Paints an opaque colored rect on the page. Default = white (erases). If
+// (r, g, b) specified = overlays with that tint (section_banner case:
+// orange of the template cartouche to preserve). PDFium coords (bottom-left
+// origin).
 static void paintColoredRect(FPDF_DOCUMENT doc, FPDF_PAGE page,
                               float left, float bottom, float right, float top,
                               unsigned r, unsigned g, unsigned b) {
@@ -157,10 +157,10 @@ static void paintWhiteRect(FPDF_DOCUMENT doc, FPDF_PAGE page,
   paintColoredRect(doc, page, left, bottom, right, top, 255, 255, 255);
 }
 
-// P4 audit : insertText utilise la font name du slot original quand fournie.
-// Si PDFium ne trouve pas la font (pas embeddee, nom inconnu), il fallback
-// silencieusement vers une font interne. On essaie quand meme les fonts
-// builtin standard PDF (Helvetica, Times, Courier) si rien d'autre ne marche.
+// P4 audit: insertText uses the font name of the original slot when provided.
+// If PDFium doesn't find the font (not embedded, unknown name), it falls back
+// silently to an internal font. We still try the standard PDF builtin fonts
+// (Helvetica, Times, Courier) if nothing else works.
 static void insertText(FPDF_DOCUMENT doc, FPDF_PAGE page, const std::string& text,
                         float fontSize, unsigned r, unsigned g, unsigned b,
                         float x, float y, const std::string& fontName = "",
@@ -175,9 +175,9 @@ static void insertText(FPDF_DOCUMENT doc, FPDF_PAGE page, const std::string& tex
   auto u16 = utf8ToUtf16Le(text);
   FPDFText_SetText(obj, u16.data());
   FPDFPageObj_SetFillColor(obj, r, g, b, 255);
-  // Matrice affine [a b c d e f] = rotation + translation.
-  // rotation 90 CW  (texte vertical bottom-to-top) : (0, -1, 1, 0, x, y)
-  // rotation 270 CW (texte vertical top-to-bottom) : (0, 1, -1, 0, x, y)
+  // Affine matrix [a b c d e f] = rotation + translation.
+  // rotation 90 CW  (vertical text bottom-to-top): (0, -1, 1, 0, x, y)
+  // rotation 270 CW (vertical text top-to-bottom): (0, 1, -1, 0, x, y)
   if (rotationDeg == 90) {
     FPDFPageObj_Transform(obj, 0, -1, 1, 0, x, y);
   } else if (rotationDeg == 270) {
@@ -189,14 +189,14 @@ static void insertText(FPDF_DOCUMENT doc, FPDF_PAGE page, const std::string& tex
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Implementation des operations
+// Implementation of the operations
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Recupere la bbox d'un slot en convertissant top-left -> bottom-left PDFium.
-// Retourne {left, bottom, right, top} si OK, false sinon.
+// Retrieves a slot's bbox, converting top-left -> bottom-left PDFium.
+// Returns {left, bottom, right, top} if OK, false otherwise.
 static bool slotBboxToPdfium(const json& slot, float pageH,
                               float& left, float& bottom, float& right, float& top) {
-  // Le label.bbox est plus precis que slot.bbox pour positionner le texte.
+  // label.bbox is more precise than slot.bbox for positioning the text.
   json bbox;
   if (slot.contains("label") && slot["label"].contains("bbox")) {
     bbox = slot["label"]["bbox"];
@@ -212,15 +212,15 @@ static bool slotBboxToPdfium(const json& slot, float pageH,
   float y1 = bbox[3].get<float>();
   left = x0;
   right = x1;
-  // top-left → bottom-left : y_pdfium = pageH - y_topleft
+  // top-left → bottom-left: y_pdfium = pageH - y_topleft
   top = pageH - y0;
   bottom = pageH - y1;
   return true;
 }
 
-// ─── Helpers erase / insert separes pour le 2-pass ─────────────────────────
+// ─── Separate erase / insert helpers for the 2-pass ────────────────────────
 
-// Extrait style + coords d'un slot pour set_text. Retourne false si absent.
+// Extracts style + coords of a slot for set_text. Returns false if absent.
 static bool resolveSlotForText(int sourcePage, const std::string& slotId, float pageH,
                                 float& left, float& bottom, float& right, float& top,
                                 float& size, unsigned& r, unsigned& g, unsigned& b,
@@ -241,14 +241,14 @@ static bool resolveSlotForText(int sourcePage, const std::string& slotId, float 
   return true;
 }
 
-// Padding pour eraseSlotZone (resolution de slot par id). 50% absorbe les
-// descenders/accents que PDFium n'inclut pas dans le bbox du glyph. Plus
-// genereux que ERASE_PAD_INSERT_RATIO (35%) car la zone slot peut couvrir
-// plusieurs lignes (banner, label).
+// Padding for eraseSlotZone (slot resolution by id). 50% absorbs the
+// descenders/accents that PDFium doesn't include in the glyph bbox. More
+// generous than ERASE_PAD_INSERT_RATIO (35%) because the slot zone may span
+// several lines (banner, label).
 static constexpr float ERASE_PAD_SLOT_RATIO = 0.5f;
 static constexpr float ERASE_PAD_SLOT_MIN_PT = 6.0f;
 
-// Efface la zone d'un slot.
+// Erases a slot's zone.
 static void eraseSlotZone(FPDF_DOCUMENT doc, FPDF_PAGE page,
                            float left, float bottom, float right, float top) {
   float h = top - bottom;
@@ -256,7 +256,7 @@ static void eraseSlotZone(FPDF_DOCUMENT doc, FPDF_PAGE page,
   paintWhiteRect(doc, page, left - 2.0f, bottom - padY, right + 2.0f, top + padY);
 }
 
-// ─── Operations completes (erase + insert, usage hors 2-pass) ───────────────
+// ─── Complete operations (erase + insert, used outside the 2-pass) ──────────
 
 static void applyOpSetText(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op,
                             int sourcePage) {
@@ -273,10 +273,10 @@ static void applyOpSetText(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op,
   insertText(doc, page, text, size, r, g, b, left, bottom, fontName);
 }
 
-/** Supprime physiquement TOUS les paths (vector) ET images de la page dont
- *  la bbox est entierement contenue dans op.bbox. Utile quand un rect blanc
- *  ne suffit pas (path dessine par-dessus a cause d'un form xobject /
- *  d'un ordre de rendu PDFium inattendu). */
+/** Physically removes ALL paths (vector) AND images of the page whose
+ *  bbox is entirely contained within op.bbox. Useful when a white rect
+ *  isn't enough (path drawn on top because of a form xobject /
+ *  an unexpected PDFium render order). */
 static void applyOpRemovePathsInBbox(FPDF_PAGE page, const json& op) {
   if (!op.contains("bbox")) return;
   const json& bbox = op["bbox"];
@@ -291,9 +291,9 @@ static void applyOpRemovePathsInBbox(FPDF_PAGE page, const json& op) {
   float bottom = pageH - y1, top = pageH - y0;
 
   // Collect first then remove (modifying while iterating is unsafe).
-  // On NE supprime QUE les objets de petite taille (lignes decoratives,
-  // micro-pictos) — surface < 1500 pt^2 par defaut. Empeche de supprimer
-  // les cartouches de section, rubans structurels, header bands, etc.
+  // We ONLY remove small-sized objects (decorative lines,
+  // micro-pictos) — area < 1500 pt^2 by default. Prevents removing
+  // section cartouches, structural ribbons, header bands, etc.
   const float maxArea = op.value("max_area", 1500.0f);
   std::vector<FPDF_PAGEOBJECT> toRemove;
   int n = FPDFPage_CountObjects(page);
@@ -301,15 +301,15 @@ static void applyOpRemovePathsInBbox(FPDF_PAGE page, const json& op) {
     FPDF_PAGEOBJECT obj = FPDFPage_GetObject(page, i);
     if (!obj) continue;
     int type = FPDFPageObj_GetType(obj);
-    // PATH only (pas IMAGE) : les images sont les cartouches de section,
-    // pictos bitmap, etc. On les laisse — elles sont effacees au besoin
-    // par les erase_rect classiques (polishResidualBitmaps).
+    // PATH only (not IMAGE): images are the section cartouches,
+    // bitmap pictos, etc. We leave them — they are erased when needed
+    // by the classic erase_rect (polishResidualBitmaps).
     if (type != FPDF_PAGEOBJ_PATH) continue;
     float ol, ob, or_, ot;
     if (!FPDFPageObj_GetBounds(obj, &ol, &ob, &or_, &ot)) continue;
-    // Object bbox entierement inscrit dans la erase bbox
+    // Object bbox entirely inscribed within the erase bbox
     if (ol < left - 1 || or_ > right + 1 || ob < bottom - 1 || ot > top + 1) continue;
-    // Filtre taille : on garde les objets larges (= structurels)
+    // Size filter: we keep the large objects (= structural)
     float w = or_ - ol;
     float h = ot - ob;
     if (w * h > maxArea) continue;
@@ -322,10 +322,10 @@ static void applyOpRemovePathsInBbox(FPDF_PAGE page, const json& op) {
   }
 }
 
-/** Supprime physiquement les TEXT objects de la page dont la bbox est
- *  inscrite dans la bbox de l'op. Sert a effacer un numero de page sur
- *  fond photo sans laisser de tache visible (un erase_rect blanc/colore
- *  serait visible sur la photo). Equivalent textuel de applyOpRemovePathsInBbox. */
+/** Physically removes the TEXT objects of the page whose bbox is
+ *  inscribed within the op's bbox. Used to erase a page number over
+ *  a photo background without leaving a visible blotch (a white/colored erase_rect
+ *  would be visible over the photo). Text equivalent of applyOpRemovePathsInBbox. */
 static void applyOpRemoveTextInBbox(FPDF_PAGE page, const json& op) {
   if (!op.contains("bbox")) return;
   const json& bbox = op["bbox"];
@@ -346,7 +346,7 @@ static void applyOpRemoveTextInBbox(FPDF_PAGE page, const json& op) {
     if (FPDFPageObj_GetType(obj) != FPDF_PAGEOBJ_TEXT) continue;
     float ol, ob, or_, ot;
     if (!FPDFPageObj_GetBounds(obj, &ol, &ob, &or_, &ot)) continue;
-    // Object entierement inscrit dans la bbox cible (avec 1pt tolerance)
+    // Object entirely inscribed within the target bbox (with 1pt tolerance)
     if (ol < left - 1 || or_ > right + 1 || ob < bottom - 1 || ot > top + 1) continue;
     toRemove.push_back(obj);
   }
@@ -357,10 +357,10 @@ static void applyOpRemoveTextInBbox(FPDF_PAGE page, const json& op) {
   }
 }
 
-// Echantillonne la couleur de fond dans une fine bande JUSTE AU-DESSUS du rect
-// (left..right, en coords PDFium bottom-left) en rendant la page courante.
-// Sert a effacer un numero de page sur fond photo avec la teinte locale (pas de
-// bloc blanc voyant). Retourne false si echec (le caller garde alors le blanc).
+// Samples the background color in a thin band JUST ABOVE the rect
+// (left..right, in PDFium bottom-left coords) by rendering the current page.
+// Used to erase a page number over a photo background with the local tint (no
+// glaring white block). Returns false on failure (the caller then keeps white).
 static bool sampleBgColor(FPDF_PAGE page, float left, float right, float top,
                           unsigned& outR, unsigned& outG, unsigned& outB) {
   float pageW = FPDF_GetPageWidthF(page);
@@ -372,13 +372,13 @@ static bool sampleBgColor(FPDF_PAGE page, float left, float right, float top,
   if (W <= 0 || H <= 0) return false;
   FPDF_BITMAP bmp = FPDFBitmap_Create(W, H, 1);  // BGRA
   if (!bmp) return false;
-  FPDFBitmap_FillRect(bmp, 0, 0, W, H, 0xFFFFFFFF);  // fond blanc opaque
+  FPDFBitmap_FillRect(bmp, 0, 0, W, H, 0xFFFFFFFF);  // opaque white background
   FPDF_RenderPageBitmap(bmp, page, 0, 0, W, H, 0, 0);
   unsigned char* buf = static_cast<unsigned char*>(FPDFBitmap_GetBuffer(bmp));
   int stride = FPDFBitmap_GetStride(bmp);
-  // Bande pdfium y dans [top+1, top+6] = juste au-dessus du numero (= photo,
-  // le running header voisin est a GAUCHE pas au-dessus). device y (origine
-  // haut-gauche) = (pageH - pdfium_y) * scale.
+  // pdfium y band in [top+1, top+6] = just above the number (= photo,
+  // the neighboring running header is to the LEFT not above). device y (top-left
+  // origin) = (pageH - pdfium_y) * scale.
   double sr = 0, sg = 0, sb = 0; long cnt = 0;
   for (float yy = top + 1.0f; yy <= top + 6.0f; yy += 1.0f) {
     int devY = static_cast<int>((pageH - yy) * scale);
@@ -411,8 +411,8 @@ static void applyOpEraseRect(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op) 
   if (op.contains("color") && op["color"].is_string()) {
     parseHexColor(op["color"].get<std::string>(), r, g, b);
   }
-  // sample_bg : efface avec la teinte du fond local (footer numero sur photo
-  // claire) au lieu du blanc → pas de bloc blanc visible. Fallback blanc si KO.
+  // sample_bg: erases with the local background tint (footer number over a light
+  // photo) instead of white → no visible white block. White fallback if it fails.
   if (op.value("sample_bg", false)) {
     unsigned sr, sg, sb;
     if (sampleBgColor(page, x0, x1, pageH - y0, sr, sg, sb)) {
@@ -422,14 +422,14 @@ static void applyOpEraseRect(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op) 
   paintColoredRect(doc, page, x0, pageH - y1, x1, pageH - y0, r, g, b);
 }
 
-// V2 engine : insertion de texte autonome (sans dependance slot_id).
-// Le caller fournit bbox + font + size + color. La bbox est en coords schema
-// (origine top-left). L'erase de la zone est inclus en PASS 1 (cf 2-pass
-// principal). L'insertion text se fait en PASS 2 a la baseline (bbox[3]).
+// V2 engine: standalone text insertion (without slot_id dependency).
+// The caller provides bbox + font + size + color. The bbox is in schema coords
+// (top-left origin). The erase of the zone is included in PASS 1 (cf. the main
+// 2-pass). The text insertion happens in PASS 2 at the baseline (bbox[3]).
 static void applyOpInsertTextErase(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op) {
   if (!op.contains("bbox")) return;
-  // Skip si no_erase=true : le caller veut juste reecrire un glyphe
-  // sans tache blanche (renum pages sur fond photo).
+  // Skip if no_erase=true: the caller just wants to rewrite a glyph
+  // without a white blotch (page renum over a photo background).
   if (op.value("no_erase", false)) return;
   const json& bbox = op["bbox"];
   if (!bbox.is_array() || bbox.size() != 4) return;
@@ -438,12 +438,12 @@ static void applyOpInsertTextErase(FPDF_DOCUMENT doc, FPDF_PAGE page, const json
   float y0 = bbox[1].get<float>();
   float x1 = bbox[2].get<float>();
   float y1 = bbox[3].get<float>();
-  // Padding pour applyOpInsertTextErase (auto-erase blanc autour de bbox
-  // d'un insert_text). Ratio 35% plus serre que ERASE_PAD_SLOT_RATIO (50%)
-  // car la bbox d'insert_text fournie par le caller est deja calculee
-  // serree autour du texte attendu (le caller a la geometrie precise).
-  // Min 8pt = un peu plus large que le slot pour les ligne decoratives
-  // qui longent le nom (vu sur ER : trait fin separateur header/specs).
+  // Padding for applyOpInsertTextErase (white auto-erase around the bbox
+  // of an insert_text). 35% ratio, tighter than ERASE_PAD_SLOT_RATIO (50%)
+  // because the insert_text bbox provided by the caller is already computed
+  // tight around the expected text (the caller has the precise geometry).
+  // Min 8pt = slightly wider than the slot for the decorative lines
+  // that run alongside the name (seen on ER: thin header/specs separator rule).
   static constexpr float ERASE_PAD_INSERT_RATIO = 0.35f;
   static constexpr float ERASE_PAD_INSERT_MIN_PT = 8.0f;
   float h = y1 - y0;
@@ -464,15 +464,15 @@ static void applyOpInsertTextInsert(FPDF_DOCUMENT doc, FPDF_PAGE page, const jso
   unsigned r = 0, g = 0, b = 0;
   parseHexColor(color, r, g, b);
   std::string text = op["text"].get<std::string>();
-  // baseline ~ bottom du span - petit offset. y_pdfium = pageH - y1 + kBaselineOffsetPt.
-  // Cette valeur est partagee : si tu la modifies, change aussi INSERT_TEXT_BASELINE_OFFSET
-  // dans src/v2/insertText.ts (TS doit compenser car il connait la formule du render).
+  // baseline ~ bottom of the span - small offset. y_pdfium = pageH - y1 + kBaselineOffsetPt.
+  // This value is shared: if you change it, also change INSERT_TEXT_BASELINE_OFFSET
+  // in src/v2/insertText.ts (TS must compensate since it knows the render's formula).
   constexpr float kBaselineOffsetPt = 2.0f;
   int rotation = op.value("rotation", 0);
   if (rotation == 90 || rotation == 270) {
-    // Texte vertical : x0 = colonne, y position = base du texte en coords PDFium.
-    // Pour rotation 90 (bottom-to-top comme dans les rubans), le point d'ancrage
-    // est le coin bas-gauche du texte en coordonnees page PDFium (y=0 = bottom).
+    // Vertical text: x0 = column, y position = base of the text in PDFium coords.
+    // For rotation 90 (bottom-to-top as in the ribbons), the anchor point
+    // is the bottom-left corner of the text in PDFium page coordinates (y=0 = bottom).
     float y0 = bbox[1].get<float>();
     float anchorY = pageH - (y0 + (bbox[3].get<float>() - y0));
     insertText(doc, page, text, size, r, g, b, x0 + kBaselineOffsetPt, anchorY, fontName, rotation);
@@ -495,10 +495,10 @@ static void applyOpDrawCircle(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op)
   parseHexColor(op["color"].get<std::string>(), r, g, b);
   float pageH = FPDF_GetPageHeightF(page);
   float cy = pageH - cy_topleft;
-  // Cercle via 4 Bezier cubics (standard PDF). Plus propre que polygone
-  // 32 segments : aretes invisibles meme zoome 200%. Magic constant
-  // 0.5522847498 = (4/3) * tan(pi/8) — controle de courbure pour qu'un
-  // quart de cercle Bezier matche le cercle reel a < 0.03% pres.
+  // Circle via 4 cubic Beziers (standard PDF). Cleaner than a 32-segment
+  // polygon: invisible edges even zoomed 200%. Magic constant
+  // 0.5522847498 = (4/3) * tan(pi/8) — curvature control so that a
+  // Bezier quarter circle matches the real circle to within < 0.03%.
   const float K = radius * 0.5522847498f;
   FPDF_PAGEOBJECT path = FPDFPageObj_CreateNewPath(cx + radius, cy);
   if (!path) return;
@@ -516,25 +516,25 @@ static void applyOpDrawCircle(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op)
   FPDFPage_InsertObject(page, path);
 }
 
-// Charge une image (JPG, PNG, BMP, etc.) dans un FPDF_PAGEOBJECT via stb_image.
+// Loads an image (JPG, PNG, BMP, etc.) into a FPDF_PAGEOBJECT via stb_image.
 //
-// On n'utilise PAS FPDFImageObj_LoadJpegFile (path natif JPG rapide) : son
-// FILEACCESS demande un buffer persistant via m_Param. Si on charge plusieurs
-// JPG d'affilee, un buffer thread_local partage est ecrase par chaque appel ;
-// les images chargees AVANT perdent leur data quand PDFium lit lazily a
-// GenerateContent. Le path stb decode tout de suite en bitmap qu'on copie
-// dans un buffer PDFium possede par PDFium (independant des chargements
-// suivants).
-// Plafond de pixels avant decode : borne l'allocation (w*h*4 octets) face a une
-// image-bombe (ex PNG 64000x64000 = 16 Go RGBA). 64 MP (~256 Mo RGBA) couvre
-// tout scan produit legitime tout en bloquant les decompression bombs.
+// We do NOT use FPDFImageObj_LoadJpegFile (fast native JPG path): its
+// FILEACCESS requires a persistent buffer via m_Param. If we load several
+// JPGs in a row, a shared thread_local buffer is overwritten by each call;
+// the images loaded BEFORE lose their data when PDFium reads lazily at
+// GenerateContent. The stb path decodes right away into a bitmap that we copy
+// into a PDFium buffer owned by PDFium (independent of the subsequent
+// loads).
+// Pixel ceiling before decode: bounds the allocation (w*h*4 bytes) against an
+// image bomb (e.g. PNG 64000x64000 = 16 GB RGBA). 64 MP (~256 MB RGBA) covers
+// any legitimate product scan while blocking decompression bombs.
 static constexpr long long kMaxImagePixels = 64LL * 1000 * 1000;
 
 static bool loadImageIntoObj(FPDF_DOCUMENT doc, FPDF_PAGEOBJECT img, const fs::path& full) {
-  // SECURITE : lit d'abord les dimensions SANS decoder (stbi_info), pour
-  // refuser une image hors plafond AVANT que stb_image n'alloue le buffer.
-  // Si stbi_info echoue, on REFUSE (plutot que de laisser stbi_load decoder
-  // a l'aveugle) : ainsi le plafond est une vraie garantie, pas un best-effort.
+  // SECURITY: first read the dimensions WITHOUT decoding (stbi_info), to
+  // refuse an over-ceiling image BEFORE stb_image allocates the buffer.
+  // If stbi_info fails, we REFUSE (rather than letting stbi_load decode
+  // blindly): this way the ceiling is a real guarantee, not a best-effort.
   int iw = 0, ih = 0, ic = 0;
   if (!stbi_info(full.string().c_str(), &iw, &ih, &ic)) {
     std::cerr << "draw_image: stbi_info echec (entete illisible), refus avant decode "
@@ -554,17 +554,17 @@ static bool loadImageIntoObj(FPDF_DOCUMENT doc, FPDF_PAGEOBJECT img, const fs::p
               << " (" << stbi_failure_reason() << ")\n";
     return false;
   }
-  // Defense en profondeur : re-borne apres decode (si stbi_info a sous-estime).
+  // Defense in depth: re-bound after decode (in case stbi_info underestimated).
   if (static_cast<long long>(w) * static_cast<long long>(h) > kMaxImagePixels) {
     std::cerr << "draw_image: image trop grande apres decode (" << w << "x" << h << ")\n";
     stbi_image_free(pixels);
     return false;
   }
-  // PDFium attend BGRA pour les bitmaps. stb donne RGBA.
-  // SECURITE : on ne passe PAS le buffer stb a FPDFBitmap_CreateEx (qui le
-  // garderait par reference -> use-after-free quand on libere stb). On alloue
-  // un FPDFBitmap_Create (PDFium gere la memoire) puis on memcpy notre RGBA
-  // converti en BGRA dedans.
+  // PDFium expects BGRA for bitmaps. stb gives RGBA.
+  // SECURITY: we do NOT pass the stb buffer to FPDFBitmap_CreateEx (which would
+  // keep it by reference -> use-after-free when we free stb). We allocate
+  // a FPDFBitmap_Create (PDFium manages the memory) then memcpy our RGBA
+  // converted to BGRA into it.
   FPDF_BITMAP bmp = FPDFBitmap_Create(w, h, 1);  // 1 = alpha channel
   if (!bmp) {
     stbi_image_free(pixels);
@@ -582,7 +582,7 @@ static bool loadImageIntoObj(FPDF_DOCUMENT doc, FPDF_PAGEOBJECT img, const fs::p
       row[x * 4 + 3] = src[x * 4 + 3];  // A
     }
   }
-  stbi_image_free(pixels);  // safe : PDFium a son propre buffer
+  stbi_image_free(pixels);  // safe: PDFium has its own buffer
   bool ok = FPDFImageObj_SetBitmap(nullptr, 0, img, bmp) != 0;
   FPDFBitmap_Destroy(bmp);
   return ok;
@@ -598,9 +598,9 @@ static void applyOpDrawImage(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op,
     std::cerr << "draw_image: image_path vide refuse\n";
     return;
   }
-  // SECURITE : empeche path traversal. On accepte path relatif (joint
-  // a assetsDir) OU path absolu (utilise tel quel). Dans les 2 cas on
-  // verifie en bas que le path resolu est sous assetsDir.
+  // SECURITY: prevents path traversal. We accept a relative path (joined
+  // to assetsDir) OR an absolute path (used as-is). In both cases we
+  // verify below that the resolved path is under assetsDir.
   std::error_code ec;
   fs::path inputPath(imgPath);
   fs::path candidate = inputPath.is_absolute() ? inputPath : fs::path(assetsDir) / inputPath;
@@ -618,10 +618,10 @@ static void applyOpDrawImage(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op,
     std::cerr << "draw_image: canonical assetsDir echoue\n";
     return;
   }
-  // lexically_relative retourne un path commencant par ".." si full est
-  // hors de baseAbs. Plus robuste que la comparaison string (insensible
-  // aux symlinks, casse OS, separateurs). Reject explicite : empty (cas
-  // ou paths identiques ou non-comparables) et ".." (sortie de baseAbs).
+  // lexically_relative returns a path starting with ".." if full is
+  // outside baseAbs. More robust than string comparison (insensitive
+  // to symlinks, OS case, separators). Explicit reject: empty (case
+  // where paths are identical or non-comparable) and ".." (outside baseAbs).
   fs::path rel = full.lexically_relative(baseAbs);
   if (rel.empty()) {
     std::cerr << "draw_image: image_path hors assetsDir (rel empty) refuse : " << imgPath << "\n";
@@ -640,10 +640,10 @@ static void applyOpDrawImage(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op,
     std::cerr << "draw_image: chargement image echoue pour " << full << "\n";
     return;
   }
-  // Positionner et dimensionner via matrice (w, 0, 0, h, x, y).
-  // Si fit="contain" (defaut V2 engine) : preserve le ratio de l'image en
-  // l'inscrivant dans la bbox (centre, l'image peut etre plus petite que
-  // la bbox sur un axe). Sinon (fit="fill" ou absent) : etire a la bbox.
+  // Position and size via matrix (w, 0, 0, h, x, y).
+  // If fit="contain" (V2 engine default): preserves the image ratio by
+  // inscribing it within the bbox (centered, the image may be smaller than
+  // the bbox on one axis). Otherwise (fit="fill" or absent): stretches to the bbox.
   float pageH = FPDF_GetPageHeightF(page);
   float x0 = bbox[0].get<float>();
   float y0 = bbox[1].get<float>();
@@ -662,11 +662,11 @@ static void applyOpDrawImage(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op,
       float imgRatio = static_cast<float>(iW) / static_cast<float>(iH);
       float bboxRatio = bboxW / bboxH;
       if (imgRatio > bboxRatio) {
-        // image plus large : on remplit width, on reduit height
+        // image wider: we fill the width, reduce the height
         h = bboxW / imgRatio;
         pdfY = pageH - y1 + (bboxH - h) / 2.0f;
       } else {
-        // image plus haute : on remplit height, on reduit width
+        // image taller: we fill the height, reduce the width
         w = bboxH * imgRatio;
         pdfX = x0 + (bboxW - w) / 2.0f;
       }
@@ -676,24 +676,24 @@ static void applyOpDrawImage(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op,
   FPDFPage_InsertObject(page, img);
 }
 
-// fill_product_slot : op desactivee. L'extracteur ne produit pas de
-// product_slot strictement type ; l'engine V2 utilise set_text/insert_text
-// + draw_image. On garde le handler vide pour la retro-compat de l'ancien
-// path sectionPlanner (Claude par section).
+// fill_product_slot: disabled op. The extractor doesn't produce a
+// strictly typed product_slot; the V2 engine uses set_text/insert_text
+// + draw_image. We keep the handler empty for backward compat of the old
+// sectionPlanner path (Claude per section).
 static void applyOpFillProductSlot(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op,
                                     int sourcePage, const std::string& assetsDir) {
   (void)doc; (void)page; (void)op; (void)sourcePage; (void)assetsDir;
-  // No-op silencieux : l'engine V2 n'emet jamais de fill_product_slot.
+  // Silent no-op: the V2 engine never emits a fill_product_slot.
 }
 
-// Dispatcher principal des operations.
+// Main operations dispatcher.
 static void applyOp(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op,
                      int sourcePage, const std::string& assetsDir) {
   if (!op.contains("op")) return;
   std::string opType = op["op"].get<std::string>();
   if (opType == "set_text") applyOpSetText(doc, page, op, sourcePage);
   else if (opType == "insert_text") {
-    // Hors 2-pass : erase + insert combine.
+    // Outside the 2-pass: combined erase + insert.
     applyOpInsertTextErase(doc, page, op);
     applyOpInsertTextInsert(doc, page, op);
   }
@@ -707,11 +707,11 @@ static void applyOp(FPDF_DOCUMENT doc, FPDF_PAGE page, const json& op,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sauvegarde via FPDF_SaveAsCopy
+// Saving via FPDF_SaveAsCopy
 // ─────────────────────────────────────────────────────────────────────────────
 
-// On utilise une struct combinee : FPDF_FILEWRITE en premier (pour le cast)
-// + notre contexte juste apres.
+// We use a combined struct: FPDF_FILEWRITE first (for the cast)
+// + our context right after.
 struct CombinedWriter {
   FPDF_FILEWRITE base;
   std::ofstream* out;
@@ -730,12 +730,12 @@ static bool saveDoc(FPDF_DOCUMENT doc, const std::string& outPath) {
   w.base.version = 1;
   w.base.WriteBlock = combinedWrite;
   w.out = &out;
-  // Flag 0 = comportement standard, pas d'incremental save
+  // Flag 0 = standard behavior, no incremental save
   return FPDF_SaveAsCopy(doc, &w.base, 0) != 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Entree publique
+// Public entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
 int runRender(const std::string& planJsonPath,
@@ -743,7 +743,7 @@ int runRender(const std::string& planJsonPath,
               const std::string& templatesDir,
               const std::string& assetsDir,
               const std::string& outPdfPath) {
-  // 1. Charger plan.json
+  // 1. Load plan.json
   json plan;
   {
     std::ifstream f(planJsonPath);
@@ -758,11 +758,11 @@ int runRender(const std::string& planJsonPath,
     }
   }
 
-  // 2. Charger les extracted-page.json (pour resoudre slot_id -> bbox)
+  // 2. Load the extracted-page.json (to resolve slot_id -> bbox)
   loadExtractedPages(templatesDir);
   std::cout << "Extracted pages charges: " << g_extractedCache.size() << "\n";
 
-  // 3. Init PDFium + ouvrir template source
+  // 3. Init PDFium + open template source
   initPdfium();
 
   FPDF_DOCUMENT srcDoc = FPDF_LoadDocument(templatePdfPath.c_str(), nullptr);
@@ -772,7 +772,7 @@ int runRender(const std::string& planJsonPath,
     return 6;
   }
 
-  // 4. Creer le document destination
+  // 4. Create the destination document
   FPDF_DOCUMENT dstDoc = FPDF_CreateNewDocument();
   if (!dstDoc) {
     std::cerr << "Impossible de creer le doc destination\n";
@@ -781,7 +781,7 @@ int runRender(const std::string& planJsonPath,
     return 7;
   }
 
-  // 5. Pour chaque page du plan : importer + appliquer ops
+  // 5. For each page of the plan: import + apply ops
   if (!plan.contains("pages") || !plan["pages"].is_array()) {
     std::cerr << "plan.pages absent ou invalide\n";
     FPDF_CloseDocument(dstDoc);
@@ -795,34 +795,34 @@ int runRender(const std::string& planJsonPath,
     if (!pp.contains("source_page")) continue;
     int sourcePage = pp["source_page"].get<int>();
 
-    // Importer la source page (PDFium prend une page-spec 1-based, ex "5")
+    // Import the source page (PDFium takes a 1-based page-spec, e.g. "5")
     std::string spec = std::to_string(sourcePage + 1);
     if (!FPDF_ImportPages(dstDoc, srcDoc, spec.c_str(), dstIdx)) {
       std::cerr << "ImportPages a echoue pour source " << sourcePage << "\n";
       continue;
     }
 
-    // Si mode operations : appliquer
+    // If operations mode: apply
     if (pp.contains("render") && pp["render"].is_object()) {
       const json& render = pp["render"];
       std::string mode = render.value("mode", std::string{});
       if (mode == "operations" && render.contains("operations")) {
         FPDF_PAGE page = FPDF_LoadPage(dstDoc, dstIdx);
         if (page) {
-          // 2-PASS pour eviter qu'un rect blanc d'erase N+1 efface le texte
-          // insere par l'op N (probleme avec slots adjacents : ref + couleur
-          // cote-a-cote sur une fiche produit).
+          // 2-PASS to prevent a white erase rect of op N+1 from erasing the text
+          // inserted by op N (problem with adjacent slots: ref + color
+          // side-by-side on a product sheet).
           //
-          // PASS 1 (erase) : peint tous les rects blancs pour set_text,
-          //   fill_product_slot ET erase_rect. fill_product_slot est inclus
-          //   ici pour que son erase ne pollue pas le pass 2 de set_text.
+          // PASS 1 (erase): paints all the white rects for set_text,
+          //   fill_product_slot AND erase_rect. fill_product_slot is included
+          //   here so its erase doesn't pollute pass 2 of set_text.
           //
-          // PASS 2 (insert) : insere les textes + images. set_text et
-          //   fill_product_slot utilisent directement insertText (le rect
-          //   blanc est deja fait en pass 1, pas de double-erase).
+          // PASS 2 (insert): inserts the texts + images. set_text and
+          //   fill_product_slot use insertText directly (the white rect
+          //   is already done in pass 1, no double-erase).
           float pageH = FPDF_GetPageHeightF(page);
 
-          // ── PASS 1 : erase ────────────────────────────────────────────────
+          // ── PASS 1: erase ─────────────────────────────────────────────────
           for (const auto& op : render["operations"]) {
             if (!op.contains("op")) continue;
             std::string t = op["op"].get<std::string>();
@@ -833,7 +833,7 @@ int runRender(const std::string& planJsonPath,
                                       pageH, l, b, r, top, sz, rr, gg, bb, fn)) continue;
               eraseSlotZone(dstDoc, page, l, b, r, top);
             } else if (t == "fill_product_slot") {
-              // Efface la zone du slot de nom (le principal set_text de fill).
+              // Erases the zone of the name slot (the main set_text of fill).
               if (!op.contains("slot_id")) continue;
               float l, b, r, top, sz; unsigned rr, gg, bb; std::string fn;
               if (!resolveSlotForText(sourcePage, op["slot_id"].get<std::string>(),
@@ -850,12 +850,12 @@ int runRender(const std::string& planJsonPath,
             }
           }
 
-          // ── PASS 2 : insert ───────────────────────────────────────────────
+          // ── PASS 2: insert ────────────────────────────────────────────────
           for (const auto& op : render["operations"]) {
             if (!op.contains("op")) continue;
             std::string t = op["op"].get<std::string>();
             if (t == "set_text") {
-              // Le rect blanc est deja fait en pass 1 : juste insertText.
+              // The white rect is already done in pass 1: just insertText.
               if (!op.contains("slot_id") || !op.contains("text")) continue;
               float l, b, r, top, size;
               unsigned rr = 0, gg = 0, bb = 0;
@@ -864,14 +864,14 @@ int runRender(const std::string& planJsonPath,
                                       pageH, l, b, r, top, size, rr, gg, bb, fontName)) continue;
               insertText(dstDoc, page, op["text"].get<std::string>(), size, rr, gg, bb, l, b, fontName);
             } else if (t == "fill_product_slot") {
-              // Erase deja fait en pass 1. On appelle fill qui internement
-              // appelle applyOpSetText → on bypass l'erase interne en
-              // delegant directement a la version erase+insert pour le nom,
-              // puis draw_image pour l'image. Puisque fill appelle
-              // applyOpSetText qui repeint blanc, on doit contourner :
-              // on appelle applyOpFillProductSlot mais son erase interne est
-              // maintenant inoffensif car la zone est deja blanche (doublon
-              // OK visuellement, pas de regression).
+              // Erase already done in pass 1. We call fill which internally
+              // calls applyOpSetText → we bypass the internal erase by
+              // delegating directly to the erase+insert version for the name,
+              // then draw_image for the image. Since fill calls
+              // applyOpSetText which repaints white, we must work around it:
+              // we call applyOpFillProductSlot but its internal erase is
+              // now harmless because the zone is already white (a duplicate is
+              // OK visually, no regression).
               applyOpFillProductSlot(dstDoc, page, op, sourcePage, assetsDir);
             } else if (t == "draw_circle") {
               applyOpDrawCircle(dstDoc, page, op);
@@ -889,14 +889,14 @@ int runRender(const std::string& planJsonPath,
     dstIdx++;
   }
 
-  // 6. Sauvegarder
-  // Determinisme bit-exact NON garanti : PDFium n'expose pas l'API pour
-  // fixer CreationDate / ModDate / Producer / ID. Deux runs successifs
-  // produiront des PDFs qui different sur ces champs (et l'ID PDF est
-  // un hash random). Pour comparer 2 outputs de regression :
-  //   1) extraire le contenu visuel via pdfimages + pdftotext
-  //   2) ou utiliser qpdf --deterministic-id en post-process
-  // Non bloquant pour la prod ; pertinent surtout pour les tests snapshots.
+  // 6. Save
+  // Bit-exact determinism NOT guaranteed: PDFium doesn't expose the API to
+  // set CreationDate / ModDate / Producer / ID. Two successive runs
+  // will produce PDFs that differ on these fields (and the PDF ID is
+  // a random hash). To compare 2 regression outputs:
+  //   1) extract the visual content via pdfimages + pdftotext
+  //   2) or use qpdf --deterministic-id as post-process
+  // Non-blocking for prod; relevant mostly for snapshot tests.
   if (!saveDoc(dstDoc, outPdfPath)) {
     std::cerr << "Sauvegarde a echoue: " << outPdfPath << "\n";
     FPDF_CloseDocument(dstDoc);

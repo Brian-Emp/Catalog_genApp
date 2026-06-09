@@ -1,36 +1,36 @@
 /**
- * Post-traitement du PDF pour le rendre bit-exact reproductible.
+ * Post-processing of the PDF to make it bit-exact reproducible.
  *
- * PDFium ecrit des metadata (CreationDate, ModDate, ID hash) qui changent
- * a chaque run, ce qui casse le sha256 stable. Pas d'API publique pour
- * les fixer cote PDFium.
+ * PDFium writes metadata (CreationDate, ModDate, ID hash) that change on
+ * every run, which breaks the stable sha256. There is no public API to
+ * pin them on the PDFium side.
  *
- * Solution : on relit le binaire en latin1 (= byte-safe), on remplace les
- * dates et l'ID par des valeurs fixes a longueur identique, on reecrit.
+ * Solution: we re-read the binary as latin1 (= byte-safe), replace the
+ * dates and the ID with fixed values of identical length, and rewrite.
  *
- * Pre-conditions :
- * - le PDF n'est pas chiffre (sinon /CreationDate est dans une zone encryptee)
- * - le PDF n'est pas linearise (sinon les xref offsets changent)
+ * Pre-conditions:
+ * - the PDF is not encrypted (otherwise /CreationDate is in an encrypted area)
+ * - the PDF is not linearized (otherwise the xref offsets change)
  *
- * Pour notre usage (PDFium SaveAsCopy avec flag 0), ces conditions sont OK.
+ * For our use case (PDFium SaveAsCopy with flag 0), these conditions hold.
  */
 
 import { promises as fs } from 'fs';
 
-/** Date PDF fixe : "D:19700101000000Z" (epoch UTC). 17 caracteres. */
+/** Fixed PDF date: "D:19700101000000Z" (epoch UTC). 17 characters. */
 const FIXED_DATE = 'D:19700101000000Z';
 
-/** ID PDF fixe : 32 chars hexa (16 octets). Le PDF a /ID [<H1><H2>] avec deux
- *  hashes de 32 hex chars. On remplace les deux par 32 zeros. */
+/** Fixed PDF ID: 32 hex chars (16 bytes). The PDF has /ID [<H1><H2>] with two
+ *  32-hex-char hashes. We replace both with 32 zeros. */
 const FIXED_ID_HASH = '00000000000000000000000000000000';
 
 /**
- * Normalise les dates et ID d'un PDF in-place.
+ * Normalizes the dates and ID of a PDF in-place.
  *
- * Strategie : on travaille en encoding 'latin1' (1 byte = 1 char), donc les
- * remplacements preservent les offsets si on garde la meme longueur. PDFium
- * ecrit les dates au format "(D:YYYYMMDDHHMMSSZ)" — toujours 17 chars dans
- * les parentheses + 2 = 19 octets. Notre remplacement fait pareil.
+ * Strategy: we work in 'latin1' encoding (1 byte = 1 char), so the
+ * replacements preserve the offsets as long as we keep the same length.
+ * PDFium writes dates in the format "(D:YYYYMMDDHHMMSSZ)" — always 17 chars
+ * inside the parentheses + 2 = 19 bytes. Our replacement does the same.
  */
 export async function normalizePdfMeta(pdfPath: string): Promise<void> {
   const buf = await fs.readFile(pdfPath);
@@ -38,18 +38,18 @@ export async function normalizePdfMeta(pdfPath: string): Promise<void> {
 
   let out = text;
 
-  // 1. Dates au format (D:YYYYMMDDHHMMSSZ) — variantes possibles avec +HH'MM' / -HH'MM'
-  // On cible toute date PDF entre parentheses.
+  // 1. Dates in the (D:YYYYMMDDHHMMSSZ) format — possible variants with +HH'MM' / -HH'MM'
+  // We target any PDF date between parentheses.
   out = out.replace(/\(D:\d{8,}[^)]*\)/g, (match) => {
-    // On garde la longueur originale en padant avec des zeros si necessaire,
-    // ou en tronquant. Cas typique : `(D:20260505123456Z)` = 19 chars.
+    // We keep the original length by padding with zeros if necessary,
+    // or by truncating. Typical case: `(D:20260505123456Z)` = 19 chars.
     const fixed = `(${FIXED_DATE})`;
     if (match.length === fixed.length) return fixed;
     if (match.length > fixed.length) return fixed + ' '.repeat(match.length - fixed.length);
     return fixed.slice(0, match.length);
   });
 
-  // 2. /ID [<hash1> <hash2>] — pour deduplicate / fingerprinting
+  // 2. /ID [<hash1> <hash2>] — for deduplication / fingerprinting
   out = out.replace(
     /\/ID\s*\[\s*<[0-9a-fA-F]+>\s*<[0-9a-fA-F]+>\s*\]/g,
     (match) => {
@@ -60,10 +60,10 @@ export async function normalizePdfMeta(pdfPath: string): Promise<void> {
     },
   );
 
-  // 3. Producer / Creator si presents avec une version qui change.
-  // (Pas de probleme actuellement avec PDFium qui les met fixes par defaut.)
+  // 3. Producer / Creator if present with a version that changes.
+  // (Not a problem currently since PDFium sets them fixed by default.)
 
-  // Si rien n'a change, on n'ecrit pas pour preserver le mtime.
+  // If nothing changed, we don't write so as to preserve the mtime.
   if (out !== text) {
     await fs.writeFile(pdfPath, Buffer.from(out, 'latin1'));
   }

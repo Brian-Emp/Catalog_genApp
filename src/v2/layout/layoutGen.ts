@@ -1,17 +1,17 @@
 /**
- * Génération de layout de page catalogue VIA Gemini Pro (POC).
+ * Catalog page layout generation VIA Gemini Pro (POC).
  *
- * Paradigme : au lieu de SUBSTITUER dans un template PDF figé, on demande a
- * gemini-2.5-pro (CLI, abonnement) de COMPOSER une page produit from scratch
- * en HTML/CSS. Le HTML est ensuite rendu en PDF via Chromium headless
+ * Paradigm: instead of SUBSTITUTING into a fixed PDF template, we ask
+ * gemini-2.5-pro (CLI, subscription) to COMPOSE a product page from scratch
+ * in HTML/CSS. The HTML is then rendered to PDF via headless Chromium
  * (cf htmlToPdf.ts).
  *
- * Pourquoi Pro : la mise en page est une tache de raisonnement (hierarchie
- * visuelle, equilibre, lisibilite) ou` Pro excelle vs flash. C'est aussi LA
- * justification du CLI Gemini (Pro debloque par l'abonnement).
+ * Why Pro: page layout is a reasoning task (visual hierarchy, balance,
+ * legibility) where Pro excels vs flash. It's also THE justification for the
+ * Gemini CLI (Pro unlocked by the subscription).
  *
- * Pourquoi HTML/CSS : format natif de Pro (genere du HTML propre sans effort),
- * rendu fidele par Chromium, ecosysteme riche. Cf decision POC.
+ * Why HTML/CSS: Pro's native format (generates clean HTML effortlessly),
+ * faithfully rendered by Chromium, rich ecosystem. Cf POC decision.
  */
 
 import { callGeminiCli, GEMINI_CLI_MODELS } from '../gemini/cliClient';
@@ -24,16 +24,16 @@ export interface LayoutProductSpec {
 export interface LayoutProduct {
   name: string;
   ref: string | null;
-  /** Chemin absolu de l'image produit (asset). Injectee en <img> par Pro. */
+  /** Absolute path of the product image (asset). Injected as <img> by Pro. */
   imagePath?: string | null;
   specs: LayoutProductSpec[];
 }
 
 export interface LayoutPageInput {
-  /** Titre de section affiche en tete (ex "EAUX CLAIRES"). */
+  /** Section title shown at the top (e.g. "EAUX CLAIRES"). */
   sectionTitle: string;
   products: LayoutProduct[];
-  /** Charte couleur dominante (hex) optionnelle pour cohesion catalogue. */
+  /** Optional dominant color scheme (hex) for catalog cohesion. */
   accentColor?: string;
 }
 
@@ -49,19 +49,19 @@ export interface LayoutGenOptions {
   timeoutMs?: number;
   workDir?: string;
   /**
-   * CSS partage (extrait d'une 1ere page de reference). Si fourni, Pro genere
-   * UNIQUEMENT le <body> conforme a ce CSS, et on assemble le document avec ce
-   * <style> verbatim → coherence visuelle garantie entre toutes les pages.
+   * Shared CSS (extracted from a 1st reference page). If provided, Pro
+   * generates ONLY the <body> conforming to this CSS, and we assemble the
+   * document with this <style> verbatim → visual consistency across all pages.
    */
   sharedCss?: string;
-  /** Numero de page courant (numerotation globale). */
+  /** Current page number (global numbering). */
   pageNumber?: number;
-  /** Nombre total de pages (pour "page X / Y"). */
+  /** Total number of pages (for "page X / Y"). */
   totalPages?: number;
 }
 
 /**
- * Genere le HTML/CSS complet d'une page produit A4 via Pro.
+ * Generates the complete HTML/CSS of an A4 product page via Pro.
  */
 export async function generateLayoutHtml(
   input: LayoutPageInput,
@@ -72,7 +72,7 @@ export async function generateLayoutHtml(
     return { ok: false, error: 'aucun produit', durationMs: 0 };
   }
 
-  // Mode coherent : CSS partage fourni → Pro genere le <body> seul, on assemble.
+  // Consistent mode: shared CSS provided → Pro generates only the <body>, we assemble.
   const sharedMode = Boolean(opts.sharedCss);
   const prompt = sharedMode
     ? buildBodyPrompt(input, opts.sharedCss!, opts.pageNumber, opts.totalPages)
@@ -150,9 +150,9 @@ SORTIE : reponds UNIQUEMENT le code HTML complet (<!DOCTYPE html> ... </html>) a
 }
 
 /**
- * Prompt mode COHERENT : le CSS est deja fixe (partage entre pages). Pro ne
- * genere que le contenu <body>, en reutilisant les classes deja definies dans
- * le CSS fourni. Garantit un style identique sur toutes les pages.
+ * CONSISTENT-mode prompt: the CSS is already fixed (shared across pages). Pro
+ * only generates the <body> content, reusing the classes already defined in
+ * the provided CSS. Guarantees an identical style on all pages.
  */
 function buildBodyPrompt(
   input: LayoutPageInput,
@@ -193,32 +193,32 @@ Donnees : UNIQUEMENT celles fournies, aucun texte invente.
 SORTIE : UNIQUEMENT le HTML interne du body. AUCun <style>, AUCun markdown, AUCun texte avant/apres.`;
 }
 
-/** Extrait le contenu d'un <body>...</body>, ou le HTML brut si pas de body.
- *  Exporte pour test. */
+/** Extracts the content of a <body>...</body>, or the raw HTML if there is no
+ *  body. Exported for testing. */
 export function extractBody(text: string): string | null {
   let t = text.trim().replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/i, '').trim();
   const m = t.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
   if (m) return m[1].trim();
-  // Pro a peut-etre renvoye directement le contenu interne (sans <body>).
+  // Pro may have returned the inner content directly (without <body>).
   if (/<\w+[\s>]/.test(t) && t.length > 20) return t;
   return null;
 }
 
-/** Extrait le bloc <style>...</style> (contenu CSS) d'un HTML. Exporte pour test. */
+/** Extracts the <style>...</style> block (CSS content) from an HTML. Exported for testing. */
 export function extractStyleBlock(html: string): string | null {
   const m = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
   return m ? m[1].trim() : null;
 }
 
 /**
- * Extrait le HTML d'une reponse CLI : strip fences markdown eventuels, isole
- * du <!DOCTYPE/<html> jusqu'a </html>. Exporte pour test.
+ * Extracts the HTML from a CLI response: strips any markdown fences, isolates
+ * from <!DOCTYPE/<html> to </html>. Exported for testing.
  */
 export function extractHtml(text: string): string | null {
   let t = text.trim();
   // Strip fences ```html ... ```
   t = t.replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/i, '').trim();
-  // Isoler le doctype/html si du texte parasite entoure
+  // Isolate the doctype/html if stray text surrounds it
   const lower = t.toLowerCase();
   const startDoctype = lower.indexOf('<!doctype');
   const startHtml = lower.indexOf('<html');
@@ -227,7 +227,7 @@ export function extractHtml(text: string): string | null {
   if (start >= 0 && endIdx > start) {
     return t.slice(start, endIdx + '</html>'.length);
   }
-  // Fallback : si ca ressemble a du HTML (contient des balises), retourner tel quel
+  // Fallback: if it looks like HTML (contains tags), return it as-is
   if (/<\w+[\s>]/.test(t) && t.length > 50) return t;
   return null;
 }

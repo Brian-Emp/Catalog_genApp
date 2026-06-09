@@ -1,64 +1,64 @@
 /**
- * reflowName — substitue le nom d'un produit en respectant les contraintes
- * geometriques du slot template (largeur disponible + budget vertical).
+ * reflowName — substitutes a product name while respecting the geometric
+ * constraints of the template slot (available width + vertical budget).
  *
- * Strategie "wrap d'abord puis shrink" (cf. fit.fitWrapThenShrink) :
- *   1. Essaye 1 ligne a la taille originale.
- *   2. Wrap 2 lignes (si le budget vertical le permet) a la taille originale.
- *   3. Shrink la font jusqu'a 70% en re-essayant 1 puis 2 lignes.
- *   4. Truncate avec "…" si rien ne tient.
+ * "Wrap first then shrink" strategy (cf. fit.fitWrapThenShrink):
+ *   1. Try 1 line at the original size.
+ *   2. Wrap to 2 lines (if the vertical budget allows) at the original size.
+ *   3. Shrink the font down to 70%, retrying 1 then 2 lines.
+ *   4. Truncate with "…" if nothing fits.
  *
- * Output : Operation[] (erase_rect + insert_text par ligne) + metadata pour
- * que le caller (substitutor) puisse savoir si la zone du nom a deborde
- * et eventuellement decaler les zones voisines (color/ref).
+ * Output: Operation[] (erase_rect + insert_text per line) + metadata so the
+ * caller (substitutor) can tell whether the name zone overflowed and
+ * possibly shift the neighboring zones (color/ref).
  */
 
 import type { Bbox, Operation, TextSpan } from '../../types';
 import { fitWrapThenShrink, type FitResult } from './fit';
 import { safeTextColor } from '../safeColor';
 
-/** Ratio interligne (line-height / fontSize) standard sans-serif. */
+/** Standard sans-serif line-height ratio (line-height / fontSize). */
 const LINE_HEIGHT_RATIO = 1.15;
-/** Ratio minimum de la font (par rapport a l'original) avant de tronquer. */
+/** Minimum font ratio (relative to the original) before truncating. */
 const MIN_FONT_RATIO = 0.70;
-/** Marge de securite ajoutee au padding erase (pt). */
+/** Safety margin added to the erase padding (pt). */
 const ERASE_PAD = 2;
-/** Marge verticale haute additionnelle pour couvrir d'éventuels fragments
- *  serrés sous des décorations / banners de section. Calibré conservatif :
- *  proportionnel à origSize pour s'adapter aux typos variées. Sur Catalogue A (16pt)
- *  → ~3pt de marge, sur Catalogue C / Catalogue B (15pt) → ~2.8pt. */
+/** Additional top vertical margin to cover any tight fragments crammed
+ *  under decorations / section banners. Conservatively calibrated:
+ *  proportional to origSize to adapt to the various typefaces. On Catalogue A (16pt)
+ *  → ~3pt of margin, on Catalogue C / Catalogue B (15pt) → ~2.8pt. */
 const ERASE_TOP_RATIO = 0.25;
 
 export interface ReflowNameInput {
-  /** Texte du nouveau nom a inserer. */
+  /** Text of the new name to insert. */
   text: string;
-  /** Span template du nom (porte font, size, color, bbox de reference). */
+  /** Template span of the name (carries font, size, color, reference bbox). */
   span: TextSpan;
-  /** Limite droite absolue (pt). En general pageWidth - ribbonMargin. */
+  /** Absolute right bound (pt). Usually pageWidth - ribbonMargin. */
   rightBound: number;
-  /** Limite basse acceptable (pt). En general top du color/ref ou de la
-   *  zone specs. Si fournie, le wrap multi-lignes ne s'autorise que si
-   *  les lignes additionnelles tiennent au-dessus de cette limite. */
+  /** Acceptable bottom bound (pt). Usually the top of the color/ref or of
+   *  the specs zone. If provided, multi-line wrapping is only allowed when
+   *  the additional lines fit above this bound. */
   bottomBound?: number;
-  /** Nombre max de lignes (independamment du budget vertical). Default 2. */
+  /** Max number of lines (independent of the vertical budget). Default 2. */
   maxLines?: number;
 }
 
 export interface ReflowNameResult {
-  /** Operations a appliquer (erase global + 1 insert_text par ligne). */
+  /** Operations to apply (global erase + 1 insert_text per line). */
   ops: Operation[];
-  /** Lignes finales rendues. */
+  /** Final rendered lines. */
   lines: string[];
-  /** Taille de police effective (peut etre < originale). */
+  /** Effective font size (may be < original). */
   fontSize: number;
-  /** Hauteur totale occupee (du top a la fin de la derniere ligne). */
+  /** Total height occupied (from the top to the end of the last line). */
   totalHeight: number;
-  /** Decalage Y a appliquer aux elements en dessous (color/ref) pour
-   *  ne pas chevaucher si le nom occupe plus de hauteur que le template. */
+  /** Y shift to apply to the elements below (color/ref) so they don't
+   *  overlap if the name takes up more height than the template. */
   yShift: number;
-  /** True si on a du tronquer (perte d'information). */
+  /** True if we had to truncate (information loss). */
   truncated: boolean;
-  /** Strategie appliquee (debug). */
+  /** Applied strategy (debug). */
   strategy: FitResult['strategy'];
 }
 
@@ -70,11 +70,11 @@ export function reflowName(input: ReflowNameInput): ReflowNameResult {
   const lineHRatio = LINE_HEIGHT_RATIO;
   const origHeight = span.bbox[3] - span.bbox[1];
 
-  // Largeur disponible : du x0 du nom jusqu'a la limite droite.
+  // Available width: from the name's x0 to the right bound.
   const maxWidth = Math.max(0, input.rightBound - span.bbox[0]);
 
-  // Budget vertical pour decider maxLines : si bottomBound fourni, calcule
-  // combien de lignes tiennent. Sinon laisse passer maxLines complet.
+  // Vertical budget to decide maxLines: if bottomBound is provided, compute
+  // how many lines fit. Otherwise let the full maxLines through.
   let effectiveMaxLines = Math.max(1, input.maxLines ?? 2);
   if (input.bottomBound !== undefined) {
     const verticalBudget = input.bottomBound - span.bbox[1];
@@ -96,15 +96,15 @@ export function reflowName(input: ReflowNameInput): ReflowNameResult {
   const totalHeight = (lines.length - 1) * lineH + origHeight;
   const yShift = Math.max(0, totalHeight - origHeight);
 
-  // Erase global : couvre toute la zone du nom (largeur jusqu'a rightBound,
-  // hauteur jusqu'au nb de lignes effectif), avec padding adaptatif.
-  // Padding haut élargi (ERASE_TOP_RATIO * origSize) pour couvrir les
-  // fragments serrés type code-barre / sous-titre collé au nom dans des
-  // templates denses.
-  // Padding bas proportionnel (faille Catalogue C P5 : "Exemple" template reste
-  // visible derrière nouveau nom). Sur grand format (nameSize 24-28pt), le
-  // ERASE_PAD=2 ne couvre pas les descenders + le line spacing. Avec ratio
-  // 0.25 sur 28pt = 7pt, on capture les glyphs render bbox > baseline bbox.
+  // Global erase: covers the whole name zone (width up to rightBound,
+  // height up to the effective line count), with adaptive padding.
+  // Top padding widened (ERASE_TOP_RATIO * origSize) to cover tight
+  // fragments such as a barcode / subtitle glued to the name in dense
+  // templates.
+  // Bottom padding proportional (Catalogue C P5 bug: template "Exemple" stays
+  // visible behind the new name). At large sizes (nameSize 24-28pt),
+  // ERASE_PAD=2 doesn't cover the descenders + the line spacing. With a ratio
+  // of 0.25 on 28pt = 7pt, we capture glyphs whose render bbox > baseline bbox.
   const eraseTopPad = Math.max(ERASE_PAD, origSize * ERASE_TOP_RATIO);
   const eraseBottomPad = Math.max(ERASE_PAD, origSize * 0.25);
   const eraseBbox: Bbox = [
@@ -118,9 +118,9 @@ export function reflowName(input: ReflowNameInput): ReflowNameResult {
     { op: 'erase_rect', bbox: eraseBbox },
   ];
 
-  // 1 insert_text par ligne. La 1ere ligne garde la y du span original,
-  // les suivantes decalees de lineH. no_erase=true car on a fait un erase
-  // global plus large que l'auto-erase de chaque insert_text.
+  // 1 insert_text per line. The 1st line keeps the original span's y, the
+  // following ones are offset by lineH. no_erase=true because we did a
+  // global erase wider than the auto-erase of each insert_text.
   for (let i = 0; i < lines.length; i++) {
     const yOffset = i * lineH;
     ops.push({
@@ -134,8 +134,8 @@ export function reflowName(input: ReflowNameInput): ReflowNameResult {
       text: lines[i],
       font: span.font,
       size: fit.fontSize,
-      // safeTextColor : bascule en noir si template = blanc/clair (cartouche
-      // colore efface par erase fond bloc => sinon nom invisible).
+      // safeTextColor: switches to black if template = white/light (colored
+      // cartouche erased by block background erase => otherwise name invisible).
       color: safeTextColor(span.color),
       no_erase: true,
     });

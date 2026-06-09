@@ -1,13 +1,13 @@
 /**
- * Mapping intelligent des colonnes xlsx/csv via Claude.
+ * Smart xlsx/csv column mapping via Claude.
  *
- * Appel optionnel quand l'heuristique regex ne trouve pas tout (typiquement :
- * headers exotiques, langue etrangere, naming custom client). Claude regarde
- * les headers + 3 lignes echantillon et propose le mapping le plus probable.
+ * Optional call when the regex heuristic doesn't find everything (typically:
+ * exotic headers, foreign language, custom client naming). Claude looks at the
+ * headers + 3 sample rows and proposes the most likely mapping.
  *
- * Output : { name, sku, color, image, section, family }. Tout est nullable.
- * Le caller merge avec l'heuristique en gardant les valeurs Claude pour les
- * champs manquants ou ambigus.
+ * Output: { name, sku, color, image, section, family }. Everything is nullable.
+ * The caller merges with the heuristic, keeping Claude's values for the
+ * missing or ambiguous fields.
  */
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -29,16 +29,16 @@ export interface ColumnMapperOptions {
   workDir: string;
   projectDir: string;
   claudeBin?: string;
-  /** Pre-detection heuristique : Claude completera les trous. */
+  /** Heuristic pre-detection: Claude will fill in the gaps. */
   heuristic?: Partial<ClaudeColumnMapping>;
-  /** Si false, retourne null sans appeler Claude. Default true. */
+  /** If false, returns null without calling Claude. Default true. */
   enabled?: boolean;
 }
 
 export interface ColumnMapperResult {
-  /** Mapping fusionne (heuristique + Claude pour les champs manquants). null si Claude pas appele. */
+  /** Merged mapping (heuristic + Claude for the missing fields). null if Claude was not called. */
   mapping: ClaudeColumnMapping | null;
-  /** True si Claude a vraiment ete invoque. */
+  /** True if Claude was actually invoked. */
   ran: boolean;
   durationMs: number;
   costUsd?: number;
@@ -93,8 +93,8 @@ export async function claudeColumnMap(
   if (Array.isArray(parsed.notes)) {
     for (const n of parsed.notes) if (typeof n === 'string') notes.push(n);
   }
-  // Merge : Claude completera les nulls. L'heuristique prime sur ses propres
-  // detections positives (pour ne pas casser un mapping qui marche).
+  // Merge: Claude will fill in the nulls. The heuristic takes precedence for
+  // its own positive detections (so as not to break a mapping that works).
   const merged: ClaudeColumnMapping = {
     name: seed.name ?? claudeMapping.name,
     sku: seed.sku ?? claudeMapping.sku,

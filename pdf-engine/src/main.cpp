@@ -1,5 +1,5 @@
-// catgen-pdf : binaire C++ qui fait l'extraction et le rendering des PDFs.
-// Sous-commandes implementees : extract (lot 4 v0.3.x) et render (lot 6).
+// catgen-pdf: C++ binary that handles PDF extraction and rendering.
+// Implemented subcommands: extract (batch 4 v0.3.x) and render (batch 6).
 
 #include <iostream>
 #include <string>
@@ -10,10 +10,10 @@
 
 namespace {
 
-// Version du binaire. Doit suivre extractor_version dans extract.cpp.
+// Binary version. Must track extractor_version in extract.cpp.
 constexpr const char* kVersion = "0.3.0";
 
-// Affiche l'aide. Convention : meme contenu pour --help / -h / sans arg.
+// Prints the help. Convention: same content for --help / -h / no arg.
 void printHelp() {
   std::cout
     << "catgen-pdf " << kVersion << "\n"
@@ -34,8 +34,8 @@ void printHelp() {
     << "  catgen-pdf --version  Affiche la version.\n";
 }
 
-// Init/destroy PDFium juste pour valider le link au runtime. Si le binaire
-// ne trouve pas libpdfium au lancement, il segfault ici => bonne smoke.
+// Init/destroy PDFium just to validate the link at runtime. If the binary
+// can't find libpdfium at launch, it segfaults here => good smoke test.
 void smokePdfium() {
   catgen::initPdfium();
   catgen::destroyPdfium();
@@ -44,10 +44,10 @@ void smokePdfium() {
 } // namespace
 
 int main(int argc, char** argv) {
-  // Lance le smoke PDFium (valide que la lib est bien linkee + dispo).
+  // Run the PDFium smoke test (validates the lib is properly linked + available).
   smokePdfium();
 
-  // Sans argument : aide.
+  // No argument: help.
   if (argc < 2) {
     printHelp();
     return 0;

@@ -229,7 +229,7 @@ main {
   0% { background-position: 0% 50%; }
   100% { background-position: 200% 50%; }
 }
-/* Etat "termine" : fixe l'animation shimmer + pulse pour signaler la fin. */
+/* "Done" state: freezes the shimmer + pulse animation to signal the end. */
 .gen-progress.is-done .gen-progress-fill {
   animation: none;
   background: var(--accent, #2563eb);
@@ -272,7 +272,7 @@ main {
   color: var(--text-soft); list-style: disc;
 }
 .gen-warnings .warn-block li { margin: .15rem 0; line-height: 1.4; }
-/* Bloc des VRAIS problèmes (impactent le score) */
+/* Block of REAL problems (impact the score) */
 .gen-warnings .warn-block.warn-real summary { color: #991b1b; font-weight: 600; }
 .gen-warnings .warn-block.warn-real li { color: #b91c1c; }
 
@@ -308,7 +308,7 @@ main {
 .gen-diagnostic .diag-score-warn  { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
 .gen-diagnostic .diag-score-err   { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
 
-/* Détail du score : 1 ligne par composant pondéré */
+/* Score breakdown: 1 row per weighted component */
 .gen-diagnostic .score-breakdown {
   display: flex; flex-direction: column; gap: .25rem;
   margin: 0 0 .7rem 0; padding: .55rem .7rem;

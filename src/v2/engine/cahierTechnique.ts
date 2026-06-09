@@ -1,20 +1,22 @@
 /**
- * Cahier technique : insertion d'une grille 2x3 de schemas AVANT la derniere
- * page du PDF (la 4e de couverture reste a la fin).
+ * Cahier technique: inserts a 2x3 grid of schematics BEFORE the last page
+ * of the PDF (the back cover stays at the end).
  *
- * Layout : 6 schemas par page A4. Plusieurs pages si overflow. Chaque cellule
- * contient nom + ref + schema fit-to-cell.
+ * Layout: 6 schematics per A4 page. Multiple pages on overflow. Each cell
+ * contains name + ref + fit-to-cell schematic.
  *
- * Filtrage : seuls les produits effectivement ALLOCES (presents dans une page
- * produit substituee du PDF) sont inclus. Si options.allocatedProductNames est
- * fourni, on filtre dessus. Sinon : tous les produits avec schema_path passent.
+ * Filtering: only products that are actually ALLOCATED (present on a
+ * substituted product page of the PDF) are included. If
+ * options.allocatedProductNames is provided, we filter on it. Otherwise: all
+ * products with a schema_path pass through.
  *
- * Sommaire : si options.tocFinalPageNumber est fourni, on ajoute une entree
- * "CAHIER TECHNIQUE • pages X-Y" en bas de la page sommaire (post-process).
+ * Sommaire: if options.tocFinalPageNumber is provided, we add a
+ * "CAHIER TECHNIQUE • pages X-Y" entry at the bottom of the sommaire page
+ * (post-process).
  *
- * Position : par defaut, on insere les pages cahier JUSTE AVANT la derniere
- * page du PDF (= 4e de couverture). Si insertBeforeLastPage=false, append a
- * la toute fin (ancien comportement).
+ * Position: by default, we insert the cahier pages JUST BEFORE the last page
+ * of the PDF (= back cover). If insertBeforeLastPage=false, append at the
+ * very end (old behavior).
  */
 
 import { promises as fs } from 'fs';
@@ -29,30 +31,30 @@ import {
 import type { PlanProduct } from '../types';
 
 export interface CahierTechniqueOptions {
-  /** Noms (trim()) des produits effectivement substitues dans le PDF final.
-   *  Si fourni : on ne garde QUE les produits dont le nom est dans ce set
-   *  (evite d'ajouter le schema d'un produit qui n'a pas trouve de slot). */
+  /** Names (trim()) of the products actually substituted in the final PDF.
+   *  If provided: we keep ONLY the products whose name is in this set (avoids
+   *  adding the schematic of a product that found no slot). */
   allocatedProductNames?: Set<string>;
-  /** Numero de page (1-based) du sommaire dans le PDF final. Si fourni : on
-   *  ajoute une entree "CAHIER TECHNIQUE … pages X-Y" en bas de cette page. */
+  /** Page number (1-based) of the sommaire in the final PDF. If provided: we
+   *  add a "CAHIER TECHNIQUE … pages X-Y" entry at the bottom of that page. */
   tocFinalPageNumber?: number;
-  /** True (default) : insere les pages cahier AVANT la derniere page (4e de
-   *  couv). False : append a la toute fin. */
+  /** True (default): inserts the cahier pages BEFORE the last page (back
+   *  cover). False: append at the very end. */
   insertBeforeLastPage?: boolean;
 }
 
 export interface CahierTechniqueResult {
-  /** Nombre de pages effectivement ajoutees au PDF. */
+  /** Number of pages actually added to the PDF. */
   pagesAdded: number;
-  /** Nombre de schemas places dans la grille. */
+  /** Number of schematics placed in the grid. */
   schemasPlaced: number;
-  /** Numero de page 1-based de la premiere page cahier dans le PDF final. */
+  /** 1-based page number of the first cahier page in the final PDF. */
   firstPageNumber: number | null;
-  /** Numero de page 1-based de la derniere page cahier dans le PDF final. */
+  /** 1-based page number of the last cahier page in the final PDF. */
   lastPageNumber: number | null;
-  /** Nb de produits filtres (avec schema_path mais non alloues). */
+  /** Count of filtered-out products (with schema_path but not allocated). */
   filteredOut: number;
-  /** Warnings produits par schema (file not found, PDF corrompu, etc.). */
+  /** Warnings produced per schematic (file not found, corrupt PDF, etc.). */
   warnings: string[];
 }
 
@@ -94,17 +96,17 @@ export async function appendCahiersTechniques(
   const warnings: string[] = [];
   const insertBeforeLast = options.insertBeforeLastPage !== false;
 
-  // 1. Filtrage : produits avec schema_path
+  // 1. Filtering: products with a schema_path
   const candidates = products.filter(
     (p) => typeof p.schema_path === 'string' && p.schema_path.length > 0,
   );
 
-  // 2. Filtrage : produits effectivement alloues (si liste fournie).
-  // Normalisation tolerante (NFKD + diacritics + whitespace + lowercase)
-  // pour eviter un tri trop strict ("AQUASTAR  900" rate "AQUASTAR 900",
-  // accents/casse heterogenes entre XLSX/UI et allocations internes).
-  // Le caller peut fournir un set deja normalise OU brut : on re-normalise
-  // les deux cotes (idempotent) pour garantir le match.
+  // 2. Filtering: products actually allocated (if a list is provided).
+  // Tolerant normalization (NFKD + diacritics + whitespace + lowercase) to
+  // avoid an overly strict filter ("AQUASTAR  900" misses "AQUASTAR 900",
+  // heterogeneous accents/case between XLSX/UI and internal allocations).
+  // The caller may provide an already-normalized OR raw set: we re-normalize
+  // both sides (idempotent) to guarantee the match.
   const normalize = (s: string): string => s
     .normalize('NFKD')
     .replace(/\p{Diacritic}/gu, '')
@@ -165,18 +167,18 @@ export async function appendCahiersTechniques(
   const totalCahierPages = Math.ceil(items.length / SCHEMAS_PER_PAGE);
   const initialPageCount = outDoc.getPageCount();
 
-  // 4. Determiner l'index d'insertion
-  // - insertBeforeLast : juste avant la derniere page existante
-  // - sinon : a la fin (append)
-  // L'insertion shift les pages suivantes, donc on incremente l'index a
-  // chaque iteration pour preserver l'ordre des pages cahier.
+  // 4. Determine the insertion index
+  // - insertBeforeLast: just before the last existing page
+  // - otherwise: at the end (append)
+  // Insertion shifts the following pages, so we increment the index on each
+  // iteration to preserve the order of the cahier pages.
   const baseInsertIdx = insertBeforeLast
     ? Math.max(0, initialPageCount - 1)
     : initialPageCount;
   const firstPageNumber1Based = baseInsertIdx + 1;
   const lastPageNumber1Based = baseInsertIdx + totalCahierPages;
 
-  // 5. Dessiner les pages cahier
+  // 5. Draw the cahier pages
   let pagesAdded = 0;
   let schemasPlaced = 0;
   for (let pageIdx = 0; pageIdx < totalCahierPages; pageIdx++) {
@@ -198,7 +200,7 @@ export async function appendCahiersTechniques(
     schemasPlaced += endIdx - startIdx;
   }
 
-  // 6. Patch sommaire si tocFinalPageNumber fourni
+  // 6. Patch the sommaire if tocFinalPageNumber is provided
   if (options.tocFinalPageNumber && options.tocFinalPageNumber >= 1) {
     try {
       const tocPageIdx = options.tocFinalPageNumber - 1;
@@ -235,7 +237,7 @@ export async function appendCahiersTechniques(
   };
 }
 
-// ─── Helpers de dessin ──────────────────────────────────────────────────────
+// ─── Drawing helpers ────────────────────────────────────────────────────────
 
 function drawPageHeader(
   page: PDFPage,
@@ -360,12 +362,12 @@ function drawCell(
 }
 
 /**
- * Ajoute une entree sommaire en bas de la page TOC :
+ * Adds a sommaire entry at the bottom of the TOC page:
  *   "Cahier technique ................. p. X-Y"
  *
- * Pas de tentative de detecter le layout existant : on dessine simplement
- * en bas de page (Y = TOC_ENTRY_BOTTOM_MARGIN). C'est moche si la page TOC
- * est deja remplie jusqu'en bas, mais c'est robuste.
+ * No attempt to detect the existing layout: we simply draw at the bottom of
+ * the page (Y = TOC_ENTRY_BOTTOM_MARGIN). It looks ugly if the TOC page is
+ * already filled to the bottom, but it is robust.
  */
 function drawTocEntry(
   tocPage: PDFPage,
@@ -383,7 +385,7 @@ function drawTocEntry(
   const xLeft = TOC_ENTRY_LEFT_MARGIN;
   const xRight = pageW - TOC_ENTRY_RIGHT_MARGIN;
 
-  // Dessine le label a gauche
+  // Draw the label on the left
   tocPage.drawText(label, {
     x: xLeft,
     y,
@@ -391,7 +393,7 @@ function drawTocEntry(
     font: boldFont,
     color: rgb(0.1, 0.1, 0.1),
   });
-  // Dessine le numero de page a droite
+  // Draw the page number on the right
   const pageW2 = regFont.widthOfTextAtSize(pageRef, TOC_ENTRY_FONT_SIZE);
   tocPage.drawText(pageRef, {
     x: xRight - pageW2,
@@ -400,7 +402,7 @@ function drawTocEntry(
     font: regFont,
     color: rgb(0.1, 0.1, 0.1),
   });
-  // Dot leader entre les deux
+  // Dot leader between the two
   const labelW = boldFont.widthOfTextAtSize(label, TOC_ENTRY_FONT_SIZE);
   const dotStart = xLeft + labelW + 6;
   const dotEnd = xRight - pageW2 - 6;

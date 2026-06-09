@@ -1,47 +1,47 @@
 /**
- * Helper generique pour spawner un binaire et capturer son output.
- * Utilise pour catgen-pdf (extract / render) et claude CLI.
+ * Generic helper to spawn a binary and capture its output.
+ * Used for catgen-pdf (extract / render) and the claude CLI.
  *
- * Capture stdout + stderr (limites en taille pour eviter de saturer la RAM
- * si le binaire deverse des Mo de logs), gere timeout (SIGKILL si depassement),
- * retourne un objet structure plutot que de jeter des exceptions.
+ * Captures stdout + stderr (size-limited to avoid saturating RAM if the
+ * binary dumps megabytes of logs), handles timeout (SIGKILL if exceeded),
+ * returns a structured object rather than throwing exceptions.
  */
 
 import { spawn, type SpawnOptions } from 'child_process';
 import { createWriteStream, type WriteStream } from 'fs';
 
 export interface RunBinaryOptions {
-  /** Chemin absolu ou nom du binaire dans le PATH. */
+  /** Absolute path or name of the binary in the PATH. */
   bin: string;
-  /** Arguments. Pas de quoting necessaire (spawn passe en argv array). */
+  /** Arguments. No quoting needed (spawn passes an argv array). */
   args: string[];
-  /** Working directory (defaut : process.cwd()). */
+  /** Working directory (default: process.cwd()). */
   cwd?: string;
-  /** Timeout en ms ; au-dela, SIGKILL. Defaut : 60_000 (60s). */
+  /** Timeout in ms; beyond it, SIGKILL. Default: 60_000 (60s). */
   timeoutMs?: number;
-  /** Variables d'env additionnelles (mergees avec process.env). */
+  /** Additional env variables (merged with process.env). */
   env?: Record<string, string>;
-  /** Texte a ecrire sur stdin du process (option). */
+  /** Text to write to the process stdin (optional). */
   stdin?: string;
-  /** Plafond de stockage stdout / stderr en octets (chacun). Defaut 1 MB. */
+  /** Storage cap for stdout / stderr in bytes (each). Default 1 MB. */
   maxBufferBytes?: number;
-  /** Fichier ou mirrorer stderr (complet, non capé) en parallele du buffer
-   *  in-memory. Utile pour le debug post-mortem quand stderrTruncated=true. */
+  /** File to mirror stderr (full, uncapped) alongside the in-memory buffer.
+   *  Useful for post-mortem debugging when stderrTruncated=true. */
   stderrLogPath?: string;
 }
 
 export interface RunBinaryResult {
   ok: boolean;
   exitCode: number | null;
-  /** True si le process a ete tue parce que le timeout a expire. */
+  /** True if the process was killed because the timeout expired. */
   timedOut: boolean;
   stdout: string;
   stderr: string;
-  /** True si stdout a depasse le maxBuffer (output tronque). */
+  /** True if stdout exceeded maxBuffer (output truncated). */
   stdoutTruncated: boolean;
-  /** True si stderr a depasse le maxBuffer (errors potentiellement masquees). */
+  /** True if stderr exceeded maxBuffer (errors potentially hidden). */
   stderrTruncated: boolean;
-  /** Duree d'execution en ms (mesuree cote Node). */
+  /** Execution time in ms (measured on the Node side). */
   durationMs: number;
 }
 
@@ -49,8 +49,8 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_BUFFER = 1024 * 1024;
 
 /**
- * Lance un binaire et attend sa fin. Ne jette PAS d'exception sur exit code
- * non-zero ou timeout : retourne toujours un RunBinaryResult.
+ * Launches a binary and waits for it to finish. Does NOT throw an exception
+ * on a non-zero exit code or timeout: always returns a RunBinaryResult.
  */
 export async function runBinary(opts: RunBinaryOptions): Promise<RunBinaryResult> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -97,7 +97,7 @@ export async function runBinary(opts: RunBinaryOptions): Promise<RunBinaryResult
       try {
         stderrLog = createWriteStream(opts.stderrLogPath, { flags: 'w' });
       } catch {
-        // pas fatal : on continue avec capture in-memory seule
+        // not fatal: we continue with in-memory capture only
       }
     }
 
@@ -109,15 +109,15 @@ export async function runBinary(opts: RunBinaryOptions): Promise<RunBinaryResult
     });
 
     if (opts.stdin !== undefined && child.stdin) {
-      // Si le payload depasse 50KB on log un warning : le pipe OS (~64KB sur
-      // Linux) peut bloquer si le child ne lit pas immediatement. write() avec
-      // callback gere la backpressure cote Node.
+      // If the payload exceeds 50KB we log a warning: the OS pipe (~64KB on
+      // Linux) can block if the child does not read immediately. write() with
+      // a callback handles backpressure on the Node side.
       if (opts.stdin.length > 50_000) {
         process.stderr.write(`[runBinary] stdin payload large (${Math.round(opts.stdin.length / 1024)}KB) — pipe peut bloquer\n`);
       }
       child.stdin.on('error', (err) => {
-        // EPIPE possible si le child ferme stdin avant qu'on ait fini d'ecrire.
-        // Pas fatal : le child a deja ce qu'il voulait.
+        // EPIPE possible if the child closes stdin before we finish writing.
+        // Not fatal: the child already has what it wanted.
         stderr = appendCapped(stderr, `\n[stdin error] ${err.message}\n`, true);
       });
       child.stdin.write(opts.stdin, () => child.stdin?.end());
@@ -144,7 +144,7 @@ export async function runBinary(opts: RunBinaryOptions): Promise<RunBinaryResult
 
     child.on('close', (code) => finish(code));
     child.on('error', (err) => {
-      // erreur de spawn (binaire introuvable etc.)
+      // spawn error (binary not found, etc.)
       stderr = appendCapped(stderr, `\n[spawn error] ${err.message}\n`, true);
       finish(null);
     });

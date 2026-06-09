@@ -1,17 +1,17 @@
 /**
- * Constantes de timeout partagees pour les binaires externes lances par
- * le pipeline. Centralise les valeurs pour eviter la duplication et
- * faciliter le tuning (ex: ralentissement local sur gros PDFs).
+ * Shared timeout constants for the external binaries launched by the
+ * pipeline. Centralizes the values to avoid duplication and to make
+ * tuning easier (e.g. local slowdown on large PDFs).
  */
 
-/** Extracteur PDFium : ouvre + parse + ecrit 1 JSON par page. Sur Catalogue A 188p
- *  ~700ms. 120s = marge x150 pour les gros catalogues / disques lents. */
+/** PDFium extractor: opens + parses + writes 1 JSON per page. On Catalogue A 188p
+ *  ~700ms. 120s = x150 margin for large catalogs / slow disks. */
 export const EXTRACT_TIMEOUT_MS = 120_000;
 
-/** Rendering PDFium : applique le plan + sauvegarde. Sur Catalogue A ~250ms. 180s
- *  marge pour les plans avec beaucoup d'ops (substitutions massives). */
+/** PDFium rendering: applies the plan + saves. On Catalogue A ~250ms. 180s
+ *  margin for plans with many ops (massive substitutions). */
 export const RENDER_TIMEOUT_MS = 180_000;
 
-/** Claude CLI (audit + plan generation) : ~30-90s typique. 180s = limite
- *  raisonnable avant kill ; au-dela c'est un hang. */
+/** Claude CLI (audit + plan generation): ~30-90s typical. 180s = reasonable
+ *  limit before kill; beyond that it's a hang. */
 export const CLAUDE_CLI_TIMEOUT_MS = 180_000;

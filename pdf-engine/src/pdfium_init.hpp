@@ -1,5 +1,5 @@
-// Helpers d'initialisation/destruction de la lib PDFium. Factorise le
-// bloc FPDF_LIBRARY_CONFIG qui etait copie-colle dans main/extract/render.
+// Initialization/teardown helpers for the PDFium library. Factors out the
+// FPDF_LIBRARY_CONFIG block that was copy-pasted across main/extract/render.
 #pragma once
 #include "fpdfview.h"
 

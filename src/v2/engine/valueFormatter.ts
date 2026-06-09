@@ -1,13 +1,13 @@
 /**
- * Normalisation du formatting des spec VALUES au style template via Claude.
+ * Normalization of spec VALUE formatting to the template's style via Claude.
  *
- * Cas d'usage : xlsx avec valeurs minimales ("60", "5") alors que le template
- * attend des valeurs formatees ("60 cm", "5 ans"). Sans normalize, le rendu
- * affiche le bare value et casse l'apparence.
+ * Use case: an xlsx with minimal values ("60", "5") while the template
+ * expects formatted values ("60 cm", "5 ans"). Without normalization, the
+ * render shows the bare value and breaks the appearance.
  *
- * Strategie : on regroupe par key (apres normalizeSpecs) les valeurs template
- * vs produit. Si visible mismatch (format different), Claude unifie en suivant
- * le template comme style guide. Mutation in-place sur products.
+ * Strategy: we group the template vs product values by key (after
+ * normalizeSpecs). On a visible mismatch (different format), Claude unifies
+ * them using the template as a style guide. In-place mutation on products.
  */
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -29,8 +29,8 @@ export interface KeyValueSample {
 
 export interface ValueFormatterOptions {
   products: PlanProduct[];
-  /** Map key → samples values vues dans le template (collectees par caller
-   *  depuis les blocks ProductBlock allocates). */
+  /** Map key → sample values seen in the template (collected by the caller
+   *  from the allocated ProductBlock blocks). */
   templateValuesByKey: Map<string, string[]>;
   workDir: string;
   projectDir: string;
@@ -62,8 +62,8 @@ export async function formatSpecValues(
     };
   }
 
-  // Match template ↔ product keys via normalisation (lowercase + alphanum)
-  // pour tolerer les variations de trailing space, casse, accents.
+  // Match template ↔ product keys via normalization (lowercase + alphanum)
+  // to tolerate variations in trailing space, case, accents.
   const productValuesByKey = collectProductValues(opts.products);
   const tplByNormKey = new Map<string, string[]>();
   for (const [k, vs] of opts.templateValuesByKey.entries()) {
@@ -97,17 +97,18 @@ export async function formatSpecValues(
     };
   }
 
-  // Le mapping rules est indexe par product key (pas template), car c'est
-  // ce que le mutator va chercher sur s.key.
+  // The rules mapping is indexed by product key (not template), since that
+  // is what the mutator looks up on s.key.
   const candidateKeys = new Set(candidates.map((c) => c.key));
   const notes: string[] = [];
   let rules: Record<string, string> = {};
   let costUsd: number | undefined;
 
-  // 1. Provider router : API Gemini (cascade de modeles), retour JSON direct.
-  //    enableClaudeFallback:false → on NE laisse PAS le router tenter Claude,
-  //    car on a deja notre propre fallback Claude agentic (Edit) en aval (etape
-  //    2) ; sinon double invocation Claude (latence + 401 redondant).
+  // 1. Provider router: Gemini API (model cascade), direct JSON return.
+  //    enableClaudeFallback:false → we do NOT let the router try Claude,
+  //    because we already have our own agentic Claude fallback (Edit)
+  //    downstream (step 2); otherwise a double Claude invocation (latency +
+  //    redundant 401).
   const routed = await routedGenerateText({
     prompt: buildPromptDirect(candidates),
     pref: 'speed',
@@ -122,7 +123,7 @@ export async function formatSpecValues(
     rules = extractRules(parsed, candidateKeys, notes);
     notes.push(`value formatter via ${routed.provider}`);
   } else {
-    // 2. Fallback Claude agentic (file-edit) si tous les providers Gemini KO.
+    // 2. Agentic Claude fallback (file-edit) if all Gemini providers fail.
     const auditPath = path.join(opts.workDir, 'value-formatting.json');
     await fs.writeFile(auditPath, JSON.stringify({ rules: {}, notes: [] }, null, 2), 'utf8');
     const res = await callClaudeCli({
@@ -146,7 +147,7 @@ export async function formatSpecValues(
       return { ran: false, durationMs: Date.now() - t0, notes, valuesReformatted: 0 };
     }
   }
-  // Applique les regles in-place sur les products (mutation, pas de clone)
+  // Apply the rules in place on the products (mutation, no clone)
   let count = 0;
   for (const p of opts.products) {
     for (const s of p.specs) {
@@ -155,8 +156,8 @@ export async function formatSpecValues(
       const newValues = s.values
         .map((v) => applyRule(v, rule))
         .filter((v) => v.length > 0);
-      // Mutation seulement si changement effectif (evite incrementer count
-      // pour des reformattings no-op type "Inox" → "Inox").
+      // Mutate only on an actual change (avoids incrementing count for no-op
+      // reformattings like "Inox" → "Inox").
       if (newValues.some((nv, i) => nv !== s.values[i])) {
         s.values = newValues;
         count++;
@@ -173,9 +174,9 @@ export async function formatSpecValues(
 }
 
 /**
- * Extrait les regles {key: template} d'une reponse parsee, filtrant sur les
- * keys candidates connues. Pousse les notes eventuelles. Mutualise le parsing
- * entre le chemin router (Gemini) et le fallback Claude.
+ * Extracts the {key: template} rules from a parsed response, filtering on the
+ * known candidate keys. Pushes any notes. Shares the parsing between the
+ * router path (Gemini) and the Claude fallback.
  */
 function extractRules(
   parsed: { rules?: unknown; notes?: unknown } | null,
@@ -210,9 +211,9 @@ function collectProductValues(products: PlanProduct[]): Map<string, string[]> {
   return out;
 }
 
-/** Detection heuristique : mismatch si les valeurs template ont une unite
- *  (cm/mm/ans/L/kg/inch/lb/°F/Hz/W/...) ou un suffixe dont les valeurs produit
- *  sont depourvues, OU si longueur moyenne tres differente (factor 1.5+). */
+/** Heuristic detection: mismatch if the template values have a unit
+ *  (cm/mm/ans/L/kg/inch/lb/°F/Hz/W/...) or a suffix that the product values
+ *  lack, OR if the average length is very different (factor 1.5+). */
 function hasFormatMismatch(tplValues: string[], prodValues: string[]): boolean {
   const tplAvgLen = avgLen(tplValues);
   const prodAvgLen = avgLen(prodValues);
@@ -224,76 +225,76 @@ function hasFormatMismatch(tplValues: string[], prodValues: string[]): boolean {
   return false;
 }
 
-/** Liste exhaustive des unites detectees comme suffixe de valeur ("60 cm",
- *  "5 ans", "12 inches", "220 V", "16 GB"). Multi-langue + multi-domaine
- *  (linéaire, poids, volume, temp, élec, fréquence, pression, info, mécanique,
- *  acoustique, lumière, durée FR/EN/DE/ES).
+/** Exhaustive list of units detected as a value suffix ("60 cm", "5 ans",
+ *  "12 inches", "220 V", "16 GB"). Multi-language + multi-domain (linear,
+ *  weight, volume, temp, electrical, frequency, pressure, info, mechanical,
+ *  acoustic, light, duration FR/EN/DE/ES).
  *
- *  Triee par longueur decroissante a la compilation pour que les tokens longs
- *  soient testes avant leurs prefixes ("kWh" avant "Wh", "années" avant "an"). */
+ *  Sorted by decreasing length at compile time so that long tokens are tested
+ *  before their prefixes ("kWh" before "Wh", "années" before "an"). */
 export const UNIT_TOKENS: ReadonlyArray<string> = [
-  // Linéaire métrique
+  // Linear metric
   'mm', 'cm', 'dm', 'km', 'm',
-  // Linéaire impériale
+  // Linear imperial
   'inches', 'inch', 'feet', 'foot', 'yards', 'yard', 'in', 'ft', 'yd', 'mil',
-  // Poids
+  // Weight
   'kg', 'mg', 'g', 't',
   'pounds', 'pound', 'lbs', 'lb', 'oz', 'tons', 'ton',
   // Volume
   'gallons', 'gallon', 'gal', 'ml', 'cl', 'dl', 'hl', 'qt', 'pt', 'fl', 'L', 'l',
-  // Température
+  // Temperature
   '°C', '°F', '°K', '°', 'degrees', 'degree', 'deg',
-  // Pourcentage / permille
+  // Percentage / permille
   '%', '‰',
-  // Électrique
+  // Electrical
   'kWh', 'mAh', 'Wh', 'Ah',
   'kW', 'MW', 'mW', 'W', 'Watts', 'Watt', 'watts', 'watt',
   'kV', 'mV', 'V', 'Volts', 'Volt', 'volts', 'volt',
   'mA', 'A', 'Amps', 'Amp', 'amps', 'amp',
   'kJ', 'J', 'cal',
-  // Fréquence / rotation
+  // Frequency / rotation
   'GHz', 'MHz', 'kHz', 'Hz', 'tr/min', 'rpm', 'tpm',
-  // Pression
+  // Pressure
   'mbar', 'bar', 'psi', 'kPa', 'MPa', 'Pa', 'atm',
   // Information
   'Tbit', 'Gbit', 'Mbit', 'kbit', 'bits', 'bit',
   'TB', 'GB', 'MB', 'kB', 'To', 'Go', 'Mo', 'ko',
   'Mpix', 'Mpx', 'dpi', 'ppi',
-  // Mécanique
+  // Mechanical
   'kN', 'Nm', 'N', 'lbf',
-  // Surface / Volume imperial (formes contigues)
+  // Imperial area / volume (contiguous forms)
   'sqft', 'sqin', 'sqyd', 'sqm', 'sqcm',
   'cuft', 'cuin', 'cuyd', 'cum', 'cucm',
-  // Vitesse
+  // Speed
   'mph', 'kph', 'kmh', 'mps', 'fps', 'rps',
-  // Acoustique
+  // Acoustic
   'dBA', 'dBa', 'dB',
-  // Lumière
+  // Light
   'lm', 'lux', 'cd',
-  // Temps court
+  // Short time
   'ms', 'sec', 's',
   'mins', 'min', 'minutes', 'minute',
   'hrs', 'hr', 'hours', 'hour', 'h',
-  // Durée FR
+  // Duration FR
   'années', 'année', 'annees', 'annee', 'ans', 'an',
   'mois', 'semaines', 'semaine', 'jours', 'jour',
-  // Durée EN
+  // Duration EN
   'years', 'year', 'months', 'month', 'weeks', 'week', 'days', 'day',
-  // Durée DE
+  // Duration DE
   'Jahren', 'Jahre', 'Jahr', 'Monaten', 'Monate', 'Monat',
   'Wochen', 'Woche', 'Tagen', 'Tage', 'Tag', 'Stunden', 'Stunde',
-  // Durée ES / PT
+  // Duration ES / PT
   'años', 'año', 'meses', 'mes', 'días', 'día', 'dias', 'dia',
   'semanas', 'semana', 'horas', 'hora',
-  // Devises symboles + codes ISO (Phase 4 T1)
+  // Currency symbols + ISO codes (Phase 4 T1)
   'EUR', 'USD', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD', 'CNY', 'KRW',
   '€', '$', '£', '¥', '₩',
 ];
 
-/** Detection des devises en prefixe (ex "$5", "£10", "CHF 25").
- *  Le pattern principal UNIT_RE exige `(?<=\d)` ce qui ne couvre que les
- *  suffixes. Pour les devises prefixees (anglo-saxon : "$5"), on ajoute
- *  ce pattern complementaire. */
+/** Detection of currencies in prefix position (e.g. "$5", "£10", "CHF 25").
+ *  The main UNIT_RE pattern requires `(?<=\d)`, which only covers suffixes.
+ *  For prefixed currencies (Anglo-Saxon: "$5"), we add this complementary
+ *  pattern. */
 const CURRENCY_PREFIX_RE = /(?:^|\s)(?:EUR|USD|GBP|JPY|CHF|CAD|AUD|CNY|KRW|[€$£¥₩])\s*\d/u;
 
 export function hasCurrencyPrefix(text: string): boolean {
@@ -302,12 +303,12 @@ export function hasCurrencyPrefix(text: string): boolean {
 
 function buildUnitRegex(): RegExp {
   const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Trie par longueur decroissante pour eviter qu'un prefixe consomme avant
-  // le full match ("kg" avant "g", "inches" avant "inch", "années" avant "an").
+  // Sort by decreasing length to avoid a prefix being consumed before the
+  // full match ("kg" before "g", "inches" before "inch", "années" before "an").
   const sorted = [...UNIT_TOKENS].sort((a, b) => b.length - a.length).map(escape);
-  // (?<=\d) : precede d'un chiffre. \s* : whitespace optionnel.
-  // (?![A-Za-zÀ-ÿ]) : pas suivi d'une lettre (evite que "5inchworm" matche "inch").
-  // On n'utilise pas \b car \b ne marche pas correctement avec ° et %.
+  // (?<=\d): preceded by a digit. \s*: optional whitespace.
+  // (?![A-Za-zÀ-ÿ]): not followed by a letter (prevents "5inchworm" matching "inch").
+  // We don't use \b because \b does not work correctly with ° and %.
   return new RegExp(
     `(?<=\\d)\\s*(?:${sorted.join('|')})(?![A-Za-zÀ-ÿ])`,
     'u',
@@ -316,8 +317,8 @@ function buildUnitRegex(): RegExp {
 
 export const UNIT_RE = buildUnitRegex();
 
-/** True si la chaine contient au moins un suffixe "nombre + unite" reconnu,
- *  OU un prefixe devise (ex "$5", "CHF 25"). */
+/** True if the string contains at least one recognized "number + unit"
+ *  suffix, OR a currency prefix (e.g. "$5", "CHF 25"). */
 export function hasUnitSuffix(text: string): boolean {
   return UNIT_RE.test(text) || CURRENCY_PREFIX_RE.test(text);
 }
@@ -331,17 +332,17 @@ function avgLen(arr: string[]): number {
   return arr.reduce((s, v) => s + v.length, 0) / arr.length;
 }
 
-/** Applique une regle de formatting. Si la regle contient `{value}`, on
- *  substitue. Sinon : on retourne la regle telle quelle. */
+/** Applies a formatting rule. If the rule contains `{value}`, we substitute.
+ *  Otherwise: we return the rule as-is. */
 export function applyRule(original: string, rule: string): string {
   const o = original.trim();
   if (o.length === 0) return o;
   if (rule.includes('{value}')) {
-    // Garde anti-double-unite : si la valeur contient DEJA le littéral que la
-    // regle ajoute (ex regle "{value} m3/h" sur une valeur source "7 m³/h"),
-    // ne pas reappliquer — sinon on produit "7 m³/h m3/h". Comparaison
-    // normalisee (casse, espaces, exposants ³→3) pour attraper les variantes
-    // typographiques. Bug observe E2E catalogC : DÉBIT "7 m³/h" → "7 m3/h m3/h".
+    // Double-unit guard: if the value ALREADY contains the literal that the
+    // rule adds (e.g. rule "{value} m3/h" on a source value "7 m³/h"), do not
+    // reapply — otherwise we produce "7 m³/h m3/h". Normalized comparison
+    // (case, spaces, superscripts ³→3) to catch typographic variants. Bug
+    // observed E2E catalogC: DÉBIT "7 m³/h" → "7 m3/h m3/h".
     const literal = rule.replace('{value}', '').trim();
     if (literal.length > 0 && normalizeUnit(o).includes(normalizeUnit(literal))) {
       return o;
@@ -354,16 +355,16 @@ export function applyRule(original: string, rule: string): string {
   return rule;
 }
 
-/** Normalise une chaine d'unite pour comparaison tolerante : minuscule,
- *  sans espaces, exposants decomposes (³→3, ²→2 via NFKD). */
+/** Normalizes a unit string for tolerant comparison: lowercase, no spaces,
+ *  decomposed superscripts (³→3, ²→2 via NFKD). */
 function normalizeUnit(s: string): string {
   return s.toLowerCase().normalize('NFKD').replace(/\s+/g, '');
 }
 
 /**
- * Variante du prompt pour les providers qui retournent le texte sur stdout
- * (Gemini via router) au lieu d'editer un fichier (Claude agentic). Meme
- * consigne metier, mais sortie JSON pure directe.
+ * Variant of the prompt for providers that return text on stdout (Gemini via
+ * the router) instead of editing a file (agentic Claude). Same business
+ * instructions, but direct pure-JSON output.
  */
 function buildPromptDirect(samples: KeyValueSample[]): string {
   const block = samples

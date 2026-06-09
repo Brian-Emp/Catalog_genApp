@@ -1,19 +1,19 @@
 /**
- * Helpers de normalisation textuelle partages par le pipeline.
+ * Text normalization helpers shared across the pipeline.
  *
- * Centralise les implementations qui etaient dupliquees dans :
+ * Centralizes implementations that used to be duplicated in:
  *   - productsAdapter.ts (stripAccents, TRANSLIT_MAP)
- *   - inputs.ts (SECTION_TRANSLIT, sub-set partiel)
+ *   - inputs.ts (SECTION_TRANSLIT, partial sub-set)
  *   - classify.ts (stripAccents)
- *   - colorPalette.ts (ß → ss inline dans normalizeColorText)
+ *   - colorPalette.ts (ß → ss inline in normalizeColorText)
  *
- * Avant cette consolidation : 4 copies de stripAccents avec des regex
- * Unicode légèrement divergentes, et 2 tables de translit incoherentes
- * sur ẞ ('ss' vs 'SS'). Maintenant : 1 source de verite.
+ * Before this consolidation: 4 copies of stripAccents with slightly
+ * divergent Unicode regexes, and 2 translit tables inconsistent on ẞ
+ * ('ss' vs 'SS'). Now: a single source of truth.
  */
 
-/** Strip les diacritiques NFD (caracteres combinables type accent aigu,
- *  grave, tréma...). Plage U+0300..U+036F = "Combining Diacritical Marks".
+/** Strip NFD diacritics (combining characters such as acute accent,
+ *  grave, diaeresis...). Range U+0300..U+036F = "Combining Diacritical Marks".
  *
  *  "Café" → "Cafe", "Mégère" → "Megere", "naïve" → "naive". */
 export function stripAccents(s: string): string {
@@ -21,38 +21,38 @@ export function stripAccents(s: string): string {
 }
 
 /**
- * Translitterations de caracteres NON-decomposables NFD : chars qui n'ont
- * pas de forme NFD avec diacritique separable. Doivent etre appliques
- * EXPLICITEMENT avant stripAccents pour preserver le contenu semantique.
+ * Transliterations of NON-NFD-decomposable characters: chars that have no
+ * NFD form with a separable diacritic. Must be applied EXPLICITLY before
+ * stripAccents to preserve semantic content.
  *
- * Sans cette table : "Straße" → "Stra e" (perd le ss du ß), "Łazienka" →
- * "azienka" (perd le L), "Þórður" → "órur" (perd Þ et ð), etc.
+ * Without this table: "Straße" → "Stra e" (loses the ss of ß), "Łazienka" →
+ * "azienka" (loses the L), "Þórður" → "órur" (loses Þ and ð), etc.
  *
- * Toutes les valeurs sont en LOWERCASE pour coherence — les callers qui
- * ont besoin d'une casse particuliere (ex preserver MAJUSCULE) doivent
- * faire le toUpperCase eux-memes apres.
+ * All values are LOWERCASE for consistency — callers that need a specific
+ * case (e.g. preserving UPPERCASE) must do the toUpperCase themselves
+ * afterwards.
  */
 export const TRANSLIT_MAP: Readonly<Record<string, string>> = {
-  // Allemand : sharp s (eszett)
+  // German: sharp s (eszett)
   'ß': 'ss', 'ẞ': 'ss',
-  // Ligatures latines
+  // Latin ligatures
   'œ': 'oe', 'Œ': 'oe', 'æ': 'ae', 'Æ': 'ae',
   'ﬁ': 'fi', 'ﬂ': 'fl', 'ﬀ': 'ff', 'ﬃ': 'ffi', 'ﬄ': 'ffl',
   'ﬅ': 'st', 'ﬆ': 'st',
-  // Scandinave / nordique (ø, å sont aussi NFD-decomposables mais explicite ici)
+  // Scandinavian / Nordic (ø, å are also NFD-decomposable but explicit here)
   'ø': 'o', 'Ø': 'o',
   'å': 'a', 'Å': 'a',
-  // Islandais
+  // Icelandic
   'ð': 'd', 'Ð': 'd',
   'þ': 'th', 'Þ': 'th',
-  // Polonais
+  // Polish
   'ł': 'l', 'Ł': 'l',
-  // Turc / centre-europe
+  // Turkish / Central Europe
   'ı': 'i', 'İ': 'i',
 };
 
-/** Applique TRANSLIT_MAP sur chaque char. Idempotent (les valeurs cibles
- *  sont elles-memes ASCII). */
+/** Applies TRANSLIT_MAP to each char. Idempotent (the target values are
+ *  themselves ASCII). */
 export function transliterate(s: string): string {
   let out = '';
   for (const ch of s) {
@@ -61,9 +61,9 @@ export function transliterate(s: string): string {
   return out;
 }
 
-/** Helper combine : transliterate puis stripAccents. La sequence est
- *  importante (transliterate gere les NON-decomposables que stripAccents
- *  laisserait inchanges). */
+/** Combined helper: transliterate then stripAccents. The order matters
+ *  (transliterate handles the NON-decomposable chars that stripAccents would
+ *  leave unchanged). */
 export function asciiize(s: string): string {
   return stripAccents(transliterate(s));
 }

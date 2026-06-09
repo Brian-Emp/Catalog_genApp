@@ -1,23 +1,23 @@
 /**
- * Wrapper du CLI Gemini (`@google/gemini-cli`) pour le pipeline V2.
+ * Wrapper around the Gemini CLI (`@google/gemini-cli`) for the V2 pipeline.
  *
- * POURQUOI un CLI en plus de l'API REST (client.ts) :
- *  - L'API free tier bloque gemini-2.5-pro (limit:0) et impose des rate limits
- *    serres (20 RPM flash).
- *  - Le CLI s'authentifie en OAuth "Login with Google" (Gemini Code Assist),
- *    ce qui exploite l'ABONNEMENT Gemini Pro de l'utilisateur : acces Pro +
- *    quotas bien plus larges, sans cle API payante.
+ * WHY a CLI in addition to the REST API (client.ts):
+ *  - The free-tier API blocks gemini-2.5-pro (limit:0) and imposes tight
+ *    rate limits (20 RPM flash).
+ *  - The CLI authenticates via OAuth "Login with Google" (Gemini Code Assist),
+ *    which leverages the user's Gemini Pro SUBSCRIPTION: Pro access + much
+ *    wider quotas, without a paid API key.
  *
- * AUTH : le CLI lit l'auth via env GOOGLE_GENAI_USE_GCA=true (Google Code
- * Assist = OAuth perso). Le token est persiste dans ~/.gemini/ apres un
- * `gemini` interactif initial (login navigateur, une seule fois).
+ * AUTH: the CLI reads auth via env GOOGLE_GENAI_USE_GCA=true (Google Code
+ * Assist = personal OAuth). The token is persisted in ~/.gemini/ after an
+ * initial interactive `gemini` run (browser login, just once).
  *
- * MODE : -p/--prompt = headless non-interactif. -o json = sortie structuree.
- * On passe --approval-mode yolo car nos prompts ne demandent aucune action
- * fichier (pure generation de texte), donc rien a approuver.
+ * MODE: -p/--prompt = headless non-interactive. -o json = structured output.
+ * We pass --approval-mode yolo because our prompts request no file action
+ * (pure text generation), so there is nothing to approve.
  *
- * Contract : retourne un GenerateTextResult identique a client.ts pour swap
- * drop-in dans le provider router (providerRouter.ts).
+ * Contract: returns a GenerateTextResult identical to client.ts for a
+ * drop-in swap in the provider router (providerRouter.ts).
  */
 
 import { runBinary } from '../binaryRunner';
@@ -25,15 +25,15 @@ import type { GenerateTextResult } from './client';
 
 export interface GeminiCliOptions {
   prompt: string;
-  /** Modele. Default gemini-2.5-pro (dispo via abonnement OAuth). */
+  /** Model. Default gemini-2.5-pro (available via OAuth subscription). */
   model?: string;
-  /** Timeout ms. Default 120s (le CLI a un cold start + thinking). */
+  /** Timeout ms. Default 120s (the CLI has a cold start + thinking). */
   timeoutMs?: number;
-  /** Path/nom du binaire. Default env GEMINI_BIN ou 'gemini'. */
+  /** Binary path/name. Default env GEMINI_BIN or 'gemini'. */
   geminiBin?: string;
-  /** cwd du process (isole le contexte projet du CLI). Default /tmp. */
+  /** Process cwd (isolates the CLI's project context). Default /tmp. */
   workDir?: string;
-  /** Label appelant pour stats. */
+  /** Caller label for stats. */
   module?: string;
 }
 
@@ -45,14 +45,14 @@ export const GEMINI_CLI_MODELS = {
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
- * Detecte si le CLI Gemini est utilisable : binaire present + auth OAuth
- * persistee. Best-effort (verifie juste la presence du token).
+ * Detects whether the Gemini CLI is usable: binary present + persisted OAuth
+ * auth. Best-effort (just checks for the token's presence).
  */
 export async function isGeminiCliAvailable(geminiBin?: string): Promise<boolean> {
   const { promises: fs } = await import('fs');
   const os = await import('os');
   const path = await import('path');
-  // Token OAuth GCA persiste apres login interactif.
+  // GCA OAuth token persisted after interactive login.
   const candidates = [
     path.join(os.homedir(), '.gemini', 'oauth_creds.json'),
     path.join(os.homedir(), '.gemini', 'google_accounts.json'),
@@ -67,10 +67,10 @@ export async function isGeminiCliAvailable(geminiBin?: string): Promise<boolean>
 }
 
 /**
- * Lance le CLI Gemini sur un prompt. Retourne un GenerateTextResult.
+ * Runs the Gemini CLI on a prompt. Returns a GenerateTextResult.
  *
- * Le prompt est passe en argv (-p). spawn gere le quoting (array argv) donc
- * pas de probleme d'echappement meme avec du JSON dans le prompt.
+ * The prompt is passed via argv (-p). spawn handles quoting (array argv), so
+ * there is no escaping issue even with JSON inside the prompt.
  */
 export async function callGeminiCli(opts: GeminiCliOptions): Promise<GenerateTextResult> {
   const bin = opts.geminiBin ?? process.env.GEMINI_BIN ?? 'gemini';
@@ -84,10 +84,10 @@ export async function callGeminiCli(opts: GeminiCliOptions): Promise<GenerateTex
     bin,
     args: ['-o', 'json', '-m', model, '--approval-mode', 'yolo', '-p', opts.prompt],
     env: {
-      // OAuth perso (Gemini Code Assist) = exploite l'abonnement Pro.
+      // Personal OAuth (Gemini Code Assist) = leverages the Pro subscription.
       GOOGLE_GENAI_USE_GCA: 'true',
-      // Sans ça le CLI refuse de tourner en headless hors "trusted folder"
-      // (il attend une confirmation interactive impossible en pipeline).
+      // Without this the CLI refuses to run headless outside a "trusted folder"
+      // (it waits for an interactive confirmation, impossible in a pipeline).
       GEMINI_CLI_TRUST_WORKSPACE: 'true',
     },
     cwd: opts.workDir ?? '/tmp',
@@ -116,11 +116,11 @@ export async function callGeminiCli(opts: GeminiCliOptions): Promise<GenerateTex
 
 export interface GeminiCliVisionOptions {
   prompt: string;
-  /** Chemins ABSOLUS des images (PNG) a analyser. Passes au CLI via @path. */
+  /** ABSOLUTE paths of the images (PNG) to analyze. Passed to the CLI via @path. */
   imagePaths: string[];
-  /** Default gemini-2.5-pro (raisonnement Vision profond, dispo via abonnement). */
+  /** Default gemini-2.5-pro (deep Vision reasoning, available via subscription). */
   model?: string;
-  /** Timeout ms. Default 180s (Vision multi-image Pro = lent). */
+  /** Timeout ms. Default 180s (multi-image Pro Vision = slow). */
   timeoutMs?: number;
   geminiBin?: string;
   workDir?: string;
@@ -128,13 +128,13 @@ export interface GeminiCliVisionOptions {
 }
 
 /**
- * Analyse Vision multi-image via le CLI Gemini (Pro). Les images sont
- * referencees par @chemin dans le prompt (le CLI les lit depuis le disque).
- * Reutilise callGeminiCli : meme auth OAuth, meme parsing.
+ * Multi-image Vision analysis via the Gemini CLI (Pro). The images are
+ * referenced by @path in the prompt (the CLI reads them from disk).
+ * Reuses callGeminiCli: same OAuth auth, same parsing.
  *
- * Cas d'usage : audit de coherence cross-page (rôle H) ou` Pro apporte un vrai
- * raisonnement vs flash. Le free tier API bloque Pro (limit:0), le CLI le
- * debloque via l'abonnement.
+ * Use case: cross-page coherence audit (role H) where Pro brings real
+ * reasoning vs flash. The free-tier API blocks Pro (limit:0), the CLI
+ * unblocks it via the subscription.
  */
 export async function callGeminiCliVision(opts: GeminiCliVisionOptions): Promise<GenerateTextResult> {
   if (opts.imagePaths.length === 0) {
@@ -154,31 +154,31 @@ export async function callGeminiCliVision(opts: GeminiCliVisionOptions): Promise
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /**
- * Extrait le texte de reponse du stdout CLI. Le format -o json du gemini CLI
- * encapsule la reponse ; on tente plusieurs cles connues, puis fallback texte
- * brut. Retourne null si vraiment rien d'exploitable.
+ * Extracts the response text from the CLI stdout. The gemini CLI's -o json
+ * format wraps the response; we try several known keys, then fall back to raw
+ * text. Returns null if there is truly nothing usable.
  *
- * Exporte pour test unitaire.
+ * Exported for unit testing.
  */
 export function extractCliText(stdout: string): string | null {
   const trimmed = stdout.trim();
   if (!trimmed) return null;
-  // 1. Tenter JSON structure
+  // 1. Try structured JSON
   try {
     const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-    // Cles connues du gemini CLI selon version : response / result / text /
-    // content. On prend la 1ere string non-vide.
+    // Known gemini CLI keys depending on version: response / result / text /
+    // content. We take the first non-empty string.
     for (const key of ['response', 'result', 'text', 'content', 'output']) {
       const v = parsed[key];
       if (typeof v === 'string' && v.trim().length > 0) return v.trim();
     }
-    // Parfois { stats, response } imbrique, ou un message direct.
+    // Sometimes nested { stats, response }, or a direct message.
     if (typeof parsed.message === 'string') return parsed.message.trim();
   } catch {
-    // pas du JSON : c'est probablement du texte brut (output-format text)
+    // not JSON: it's probably raw text (output-format text)
     return trimmed;
   }
-  // JSON parse OK mais aucune cle texte connue → renvoyer le JSON brut
-  // (le caller parsera avec parseGeminiJson si besoin).
+  // JSON parsed OK but no known text key → return the raw JSON
+  // (the caller will parse it with parseGeminiJson if needed).
   return trimmed;
 }

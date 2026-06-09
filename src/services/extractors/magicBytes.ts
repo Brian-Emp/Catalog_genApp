@@ -1,20 +1,20 @@
 import { promises as fs } from 'fs';
 
 /**
- * Détection du format réel d'un fichier par ses "magic bytes" (signatures
- * standardisées des premiers octets). Nécessaire parce que :
- *   - multer.mimetype est fourni par le client, facilement falsifiable
- *   - l'extension peut être renommée manuellement
- *   - un fichier binaire .exe renommé en .jpg passerait silencieusement
+ * Detection of a file's real format via its "magic bytes" (standardized
+ * signatures of the first few bytes). Necessary because:
+ *   - multer.mimetype is provided by the client, easily forged
+ *   - the extension can be renamed manually
+ *   - a binary .exe file renamed to .jpg would pass silently
  *
- * Pas exhaustif : on couvre les formats réellement attendus par l'app
- * (images, PDF, ZIP, XLSX/PPTX = ZIP). Le reste tombe dans "unknown".
+ * Not exhaustive: we cover the formats actually expected by the app
+ * (images, PDF, ZIP, XLSX/PPTX = ZIP). The rest falls into "unknown".
  */
 
-/** Signatures connues. Première coïncidence gagne. */
+/** Known signatures. First match wins. */
 const SIGNATURES: Array<{
   kind: DetectedKind;
-  /** Offset dans le fichier. Défaut : 0. */
+  /** Offset in the file. Default: 0. */
   offset?: number;
   magic: number[];
 }> = [
@@ -27,9 +27,9 @@ const SIGNATURES: Array<{
   { kind: 'tiff', magic: [0x4d, 0x4d, 0x00, 0x2a] }, // TIFF big-endian
   { kind: 'pdf',  magic: [0x25, 0x50, 0x44, 0x46, 0x2d] }, // %PDF-
   { kind: 'zip',  magic: [0x50, 0x4b, 0x03, 0x04] },
-  { kind: 'zip',  magic: [0x50, 0x4b, 0x05, 0x06] }, // zip vide
+  { kind: 'zip',  magic: [0x50, 0x4b, 0x05, 0x06] }, // empty zip
   { kind: 'zip',  magic: [0x50, 0x4b, 0x07, 0x08] }, // spanned
-  // WebP : RIFF????WEBP (les 4 premiers octets + 4 à l'offset 8)
+  // WebP: RIFF????WEBP (the first 4 bytes + 4 at offset 8)
   { kind: 'webp', offset: 0, magic: [0x52, 0x49, 0x46, 0x46] },
 ];
 
@@ -46,7 +46,7 @@ function startsWith(buf: Buffer, sig: number[], offset = 0): boolean {
   return true;
 }
 
-/** Vérification fine WebP : header RIFF + marque WEBP à l'offset 8. */
+/** Fine-grained WebP check: RIFF header + WEBP marker at offset 8. */
 function isWebP(buf: Buffer): boolean {
   return (
     buf.length >= 12 &&
@@ -55,13 +55,13 @@ function isWebP(buf: Buffer): boolean {
   );
 }
 
-/** Détection HEIC / HEIF / AVIF : container ISO Base Media (ISOBMFF).
+/** HEIC / HEIF / AVIF detection: ISO Base Media container (ISOBMFF).
  *
- *  Structure : 4 octets de taille puis "ftyp" (66 74 79 70) à l'offset 4
- *  puis marque "majorBrand" à l'offset 8 (4 octets ASCII).
+ *  Structure: 4 size bytes then "ftyp" (66 74 79 70) at offset 4, then the
+ *  "majorBrand" marker at offset 8 (4 ASCII bytes).
  *
- *  Brands HEIF : heic, heix, hevc, hevx, heim, heis, hevm, hevs, mif1, msf1
- *  Brand AVIF : avif (alpha brand : avis pour image sequence)
+ *  HEIF brands: heic, heix, hevc, hevx, heim, heis, hevm, hevs, mif1, msf1
+ *  AVIF brand: avif (alpha brand: avis for image sequence)
  */
 function isHeic(buf: Buffer): boolean {
   if (buf.length < 12) return false;
@@ -81,28 +81,28 @@ function isAvif(buf: Buffer): boolean {
   return brand === 'avif' || brand === 'avis';
 }
 
-/** Detecte un BOM UTF-16 (LE ou BE) ou UTF-8 en debut de buffer. */
+/** Detects a UTF-16 (LE or BE) or UTF-8 BOM at the start of the buffer. */
 function hasUtf16Bom(buf: Buffer): boolean {
   if (buf.length < 2) return false;
-  // UTF-16 LE BOM : FF FE
+  // UTF-16 LE BOM: FF FE
   if (buf[0] === 0xff && buf[1] === 0xfe) return true;
-  // UTF-16 BE BOM : FE FF
+  // UTF-16 BE BOM: FE FF
   if (buf[0] === 0xfe && buf[1] === 0xff) return true;
   return false;
 }
 
 /**
- * Heuristique "contenu textuel" :
- *  - cas UTF-8 : pas d'octet nul dans les 512 premiers octets, et
- *    seulement des caractères imprimables ou contrôles standards.
- *  - cas UTF-16 : BOM (FF FE / FE FF) en debut → considere comme textuel.
- *    Sinon le test "no null byte" echouerait sur tout UTF-16 (chaque
- *    char ASCII a un byte nul de padding).
+ * "Textual content" heuristic:
+ *  - UTF-8 case: no null byte in the first 512 bytes, and only printable
+ *    characters or standard control codes.
+ *  - UTF-16 case: a BOM (FF FE / FE FF) at the start → considered textual.
+ *    Otherwise the "no null byte" test would fail on any UTF-16 (each ASCII
+ *    char has a null padding byte).
  *
- *  Suffit pour distinguer un CSV/SVG d'un binaire.
+ *  Sufficient to distinguish a CSV/SVG from a binary.
  */
 function looksTextual(buf: Buffer): boolean {
-  if (hasUtf16Bom(buf)) return true; // UTF-16 BOM → textuel
+  if (hasUtf16Bom(buf)) return true; // UTF-16 BOM → textual
   for (let i = 0; i < Math.min(buf.length, 512); i++) {
     const b = buf[i];
     if (b === 0) return false;
@@ -119,8 +119,8 @@ function isSvg(buf: Buffer): boolean {
 }
 
 /**
- * Lit les 512 premiers octets et renvoie le format détecté.
- * 'unknown' si rien ne match (fichier suspect / type non géré).
+ * Reads the first 512 bytes and returns the detected format.
+ * 'unknown' if nothing matches (suspicious file / unsupported type).
  */
 export async function detectMagicKind(filePath: string): Promise<DetectedKind> {
   const fd = await fs.open(filePath, 'r');
@@ -129,12 +129,12 @@ export async function detectMagicKind(filePath: string): Promise<DetectedKind> {
     const { bytesRead } = await fd.read(buf, 0, 512, 0);
     const head = buf.subarray(0, bytesRead);
     if (isWebP(head)) return 'webp';
-    // HEIC / AVIF (containers ISOBMFF) : verifier ftyp brand avant les
-    // signatures classiques (sinon "ftyp..." matche rien et tombe en text).
+    // HEIC / AVIF (ISOBMFF containers): check the ftyp brand before the
+    // classic signatures (otherwise "ftyp..." matches nothing and falls to text).
     if (isAvif(head)) return 'avif';
     if (isHeic(head)) return 'heic';
     for (const sig of SIGNATURES) {
-      if (sig.kind === 'webp') continue; // traité ci-dessus
+      if (sig.kind === 'webp') continue; // handled above
       if (startsWith(head, sig.magic, sig.offset ?? 0)) return sig.kind;
     }
     if (isSvg(head)) return 'svg';
@@ -146,11 +146,11 @@ export async function detectMagicKind(filePath: string): Promise<DetectedKind> {
 }
 
 /**
- * Vérifie qu'un format détecté est cohérent avec une extension annoncée.
- * Renvoie true si le fichier est légitime, false sinon.
- * - Les extensions basées ZIP (xlsx, pptx, docx) acceptent un magic 'zip'.
- * - CSV n'accepte que du texte brut, pas du SVG (qui est aussi "textuel" mais
- *   reste un vecteur d'attaque inutile dans une zone data tabulaire).
+ * Verifies that a detected format is consistent with an announced extension.
+ * Returns true if the file is legitimate, false otherwise.
+ * - ZIP-based extensions (xlsx, pptx, docx) accept a 'zip' magic.
+ * - CSV only accepts plain text, not SVG (which is also "textual" but remains
+ *   a pointless attack vector in a tabular data area).
  */
 export function kindMatchesExt(kind: DetectedKind, ext: string): boolean {
   const e = ext.toLowerCase().replace(/^\./, '');
@@ -158,7 +158,7 @@ export function kindMatchesExt(kind: DetectedKind, ext: string): boolean {
     case 'png': return kind === 'png';
     case 'jpg':
     case 'jpeg':
-    case 'jfif': return kind === 'jpeg'; // JFIF est un sous-format JPEG
+    case 'jfif': return kind === 'jpeg'; // JFIF is a JPEG sub-format
     case 'gif': return kind === 'gif';
     case 'webp': return kind === 'webp';
     case 'bmp': return kind === 'bmp';
@@ -173,7 +173,7 @@ export function kindMatchesExt(kind: DetectedKind, ext: string): boolean {
     case 'xlsx':
     case 'xlsm':
     case 'pptx':
-    case 'docx': return kind === 'zip'; // tous basés sur ZIP (OOXML)
+    case 'docx': return kind === 'zip'; // all ZIP-based (OOXML)
     case 'csv': return kind === 'text';
     default: return false;
   }

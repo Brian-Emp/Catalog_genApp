@@ -1,17 +1,16 @@
 /**
- * Audit visuel final par Claude (vision).
+ * Final visual audit by Claude (vision).
  *
- * Apres le render C++, on echantillonne N pages substituees, on les rastere
- * en PNG via pdftoppm, et on envoie le tout a Claude CLI avec contexte des
- * produits attendus. Claude utilise Read sur chaque PNG (Read est multimodal)
- * et liste les anomalies dans `visual-audit.json`.
+ * After the C++ render, we sample N substituted pages, rasterize them to PNG
+ * via pdftoppm, and send everything to the Claude CLI with the context of the
+ * expected products. Claude uses Read on each PNG (Read is multimodal) and
+ * lists the anomalies in `visual-audit.json`.
  *
- * Objectif : detecter les regressions silencieuses (texte qui deborde, image
- * coupee, chevauchement de glyphes, mauvais produit) que la verification
- * textuelle ne peut pas attraper.
+ * Goal: detect silent regressions (overflowing text, cropped image, glyph
+ * overlap, wrong product) that textual verification cannot catch.
  *
- * Cout : ~1 appel Claude (~30s, ~$0.04 pour 6 pages a 100 DPI). On factorise
- * tous les samples dans UN seul prompt pour minimiser la latence vs N appels.
+ * Cost: ~1 Claude call (~30s, ~$0.04 for 6 pages at 100 DPI). We batch all
+ * samples into ONE prompt to minimize latency vs N calls.
  */
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -22,13 +21,13 @@ import type { Plan } from '../types';
 import type { PageAllocation } from './allocator';
 
 const PDFTOPPM_TIMEOUT_MS = 30_000;
-// 72 DPI = densite cible (1pt = 1px), suffisant pour audit de glyphes /
-// chevauchements / images mal cadrees. 100 DPI = +40% tokens vision pour
-// gain visuel marginal sur ce use case.
+// 72 DPI = target density (1pt = 1px), sufficient to audit glyphs /
+// overlaps / badly framed images. 100 DPI = +40% vision tokens for a
+// marginal visual gain on this use case.
 const VISUAL_AUDIT_DPI = 72;
-// 3 pages echantillonees (debut/milieu/fin) suffisent pour detecter les
-// regressions visuelles. 6 etait du gachis : cout proportionnel pour gain
-// marginal sur les cas normaux.
+// 3 sampled pages (start/middle/end) are enough to detect visual
+// regressions. 6 was wasteful: proportional cost for a marginal gain on
+// normal cases.
 const DEFAULT_SAMPLE_SIZE = 3;
 
 export type VisualAuditSeverity = 'critical' | 'minor';
@@ -43,7 +42,7 @@ export interface VisualAuditIssue {
 }
 
 export interface VisualAuditResult {
-  /** True si l'audit a vraiment tourne (pdftoppm dispo, render OK, Claude OK). */
+  /** True if the audit actually ran (pdftoppm available, render OK, Claude OK). */
   ran: boolean;
   issues: VisualAuditIssue[];
   sampledPages: number[];
@@ -59,9 +58,9 @@ export interface VisualAuditOptions {
   workDir: string;
   projectDir: string;
   claudeBin?: string;
-  /** Nombre de pages a echantillonner. 'all' pour toutes. Default 6. */
+  /** Number of pages to sample. 'all' for every page. Default 6. */
   sampleSize?: number | 'all';
-  /** Active l'audit. Default true. */
+  /** Enables the audit. Default true. */
   enabled?: boolean;
 }
 
@@ -191,7 +190,7 @@ export async function renderPagePng(
     timeoutMs: PDFTOPPM_TIMEOUT_MS,
   });
   if (!res.ok) return null;
-  // pdftoppm ecrit <outBase>-<N>.png ou <outBase>-<NN>.png selon padding interne
+  // pdftoppm writes <outBase>-<N>.png or <outBase>-<NN>.png depending on internal padding
   const entries = await fs.readdir(outDir).catch(() => []);
   const baseName = path.basename(outBase);
   const match = entries.find((e) => e.startsWith(`${baseName}-`) && e.endsWith('.png'));

@@ -1,13 +1,13 @@
 /**
- * Wrapper du CLI Claude pour le pipeline V2.
+ * Wrapper around the Claude CLI for the V2 pipeline.
  *
- * On invoque `claude --print --output-format json --model sonnet --allowedTools "Edit,Skill"`
- * via spawn. Le CLI lit le prompt sur stdin (plus simple que de passer en argv,
- * pas de probleme de quoting/escaping/longueur).
+ * We invoke `claude --print --output-format json --model sonnet --allowedTools "Edit,Skill"`
+ * via spawn. The CLI reads the prompt from stdin (simpler than passing it on
+ * argv, no quoting/escaping/length issue).
  *
- * --output-format json : la CLI repond un objet JSON structure :
+ * --output-format json: the CLI returns a structured JSON object:
  *   { result, session_id, total_cost_usd, duration_ms, ... }
- * On parse pour avoir des stats utilisables.
+ * We parse it to get usable stats.
  */
 
 import { runBinary, type RunBinaryResult } from './binaryRunner';
@@ -15,53 +15,53 @@ import { CLAUDE_CLI_TIMEOUT_MS } from './timeouts';
 
 export interface ClaudeCliOptions {
   prompt: string;
-  /** Repertoire de travail Claude. Le CLI charge .claude/skills/ depuis cwd
-   *  ET depuis les --add-dir. workDir doit contenir les inputs (templates,
-   *  products.json) que le Skill va lire/editer. */
+  /** Claude working directory. The CLI loads .claude/skills/ from cwd
+   *  AND from the --add-dir entries. workDir must contain the inputs
+   *  (templates, products.json) that the Skill will read/edit. */
   workDir: string;
-  /** Repertoire racine du projet (pour exposer .claude/skills/ a la CLI). */
+  /** Project root directory (to expose .claude/skills/ to the CLI). */
   projectDir: string;
-  /** Liste de dossiers supplementaires a exposer (--add-dir). */
+  /** List of additional folders to expose (--add-dir). */
   additionalDirs?: string[];
-  /** Modele : alias ('sonnet','haiku','opus') OU version pinee
-   *  (ex 'claude-sonnet-4-5-20250929'). Les alias suivent la derniere
-   *  version stable et peuvent changer sans preavis ; piner garantit la
-   *  reproductibilite (utile pour les tests de regression). */
+  /** Model: alias ('sonnet','haiku','opus') OR a pinned version
+   *  (e.g. 'claude-sonnet-4-5-20250929'). Aliases track the latest stable
+   *  version and can change without notice; pinning guarantees
+   *  reproducibility (useful for regression tests). */
   model?: string;
-  /** Outils autorises. Par defaut : Edit + Skill (Lot 5). */
+  /** Allowed tools. By default: Edit + Skill (Lot 5). */
   allowedTools?: string;
-  /** Timeout en ms. Defaut : 180_000 (3 min). */
+  /** Timeout in ms. Default: 180_000 (3 min). */
   timeoutMs?: number;
-  /** Path vers le binaire claude (defaut : 'claude' dans PATH). */
+  /** Path to the claude binary (default: 'claude' in PATH). */
   claudeBin?: string;
 }
 
 export interface ClaudeCliResult {
   ok: boolean;
-  /** Texte / JSON de la reponse Claude (champ "result" du output JSON CLI). */
+  /** Text / JSON of the Claude response (the "result" field of the CLI JSON output). */
   result: string;
-  /** Cout en USD si fourni par la CLI. */
+  /** Cost in USD if provided by the CLI. */
   costUsd?: number;
-  /** Duree mesuree par la CLI Claude (peut differer de durationMs binaire). */
+  /** Duration measured by the Claude CLI (may differ from the binary durationMs). */
   cliDurationMs?: number;
-  /** Resultat brut du runBinary (pour debug). */
+  /** Raw runBinary result (for debugging). */
   raw: RunBinaryResult;
 }
 
 /**
- * Lance la CLI Claude sur un prompt donne.
+ * Runs the Claude CLI on a given prompt.
  */
 export async function callClaudeCli(opts: ClaudeCliOptions): Promise<ClaudeCliResult> {
   const claudeBin = opts.claudeBin ?? process.env.CLAUDE_BIN ?? 'claude';
-  // Sonnet : haiku ne respecte pas le format JSON strict de plan.json (validation
-  // echoue trop souvent). Sonnet est plus lent par appel mais grace au parallel
-  // section (CONCURRENCY=3 dans sectionPlanner) le total reste raisonnable.
+  // Sonnet: haiku does not respect the strict JSON format of plan.json
+  // (validation fails too often). Sonnet is slower per call but thanks to the
+  // parallel section (CONCURRENCY=3 in sectionPlanner) the total stays reasonable.
   const model = opts.model ?? 'sonnet';
-  // "Skill" n'est pas un nom de tool standard Claude Code (les tools valides sont
-  // Read, Write, Edit, Bash, Glob, Grep, LS, Task, mcp__*...). Il est ignore
-  // silencieusement. On n'expose que Edit : Claude lit les pages via le prompt
-  // et ecrit plan.json via Edit. Le skill catalog-generator est auto-decouvert
-  // depuis .claude/skills/ via CLAUDE.md discovery (cwd = projectDir, non-bare).
+  // "Skill" is not a standard Claude Code tool name (the valid tools are
+  // Read, Write, Edit, Bash, Glob, Grep, LS, Task, mcp__*...). It is ignored
+  // silently. We only expose Edit: Claude reads the pages via the prompt
+  // and writes plan.json via Edit. The catalog-generator skill is auto-discovered
+  // from .claude/skills/ via CLAUDE.md discovery (cwd = projectDir, non-bare).
   const allowedTools = opts.allowedTools ?? 'Edit';
   const timeoutMs = opts.timeoutMs ?? CLAUDE_CLI_TIMEOUT_MS;
 
@@ -84,10 +84,10 @@ export async function callClaudeCli(opts: ClaudeCliOptions): Promise<ClaudeCliRe
     stdin: opts.prompt,
   });
 
-  // raw.ok=false ne signifie pas que stdout est vide : la CLI Claude exit
-  // avec code 1 sur 401 / auth fail tout en emettant un JSON valide avec
-  // is_error:true. On parse stdout dans tous les cas pour extraire le
-  // message d'erreur reel. Si parse echoue → fallback raw stdout/stderr.
+  // raw.ok=false does not mean stdout is empty: the Claude CLI exits
+  // with code 1 on 401 / auth fail while still emitting valid JSON with
+  // is_error:true. We parse stdout in all cases to extract the real
+  // error message. If parsing fails → fall back to raw stdout/stderr.
   if (raw.stdout && raw.stdout.trim().length > 0) {
     return parseClaudeCliOutput(raw);
   }
@@ -101,7 +101,7 @@ export async function callClaudeCli(opts: ClaudeCliOptions): Promise<ClaudeCliRe
   return parseClaudeCliOutput(raw);
 }
 
-// ─── Parse output (extrait pour testabilite + lisibilite) ────────────────────
+// ─── Parse output (extracted for testability + readability) ──────────────────
 
 interface ClaudeCliJsonOutput {
   is_error?: boolean;
@@ -127,8 +127,8 @@ function parseClaudeCliOutput(raw: RunBinaryResult): ClaudeCliResult {
   }
   const obj = parsed as ClaudeCliJsonOutput;
 
-  // La CLI Claude peut sortir avec exit 0 mais signaler un echec interne via
-  // is_error:true (ex : context window depasse, outil echoue, auth expirée).
+  // The Claude CLI may exit with code 0 but signal an internal failure via
+  // is_error:true (e.g. context window exceeded, tool failed, auth expired).
   if (obj.is_error === true) {
     const errMsg = typeof obj.result === 'string'
       ? obj.result

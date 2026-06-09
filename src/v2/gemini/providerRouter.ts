@@ -1,20 +1,20 @@
 /**
- * Provider router unifie : un seul point de bascule pour toute generation de
- * texte Gemini/Claude dans le pipeline V2.
+ * Unified provider router: a single switch point for all Gemini/Claude text
+ * generation in the V2 pipeline.
  *
- * ORDRE (quality ET speed) : API REST (cascade de modeles, cf. client.ts) →
- *                            Claude CLI (dernier recours).
+ * ORDER (quality AND speed): REST API (model cascade, cf. client.ts) →
+ *                            Claude CLI (last resort).
  *
- * POURQUOI :
- *  - API REST = la cascade multi-modeles (3.1-flash-lite → flash → … → Gemma)
- *    gere deja la diversite + le quota par-modele. Rapide (1-3s) et resilient.
- *  - CLI Gemini = ABANDONNE (lent 8-88s + aucune generation d'image) → retire.
- *  - Claude CLI = dernier recours (NB : auth expire → echec gracieux si invalide ;
- *    et no-op pour les callers sans workDir/projectDir requis par callClaudeFallback).
+ * WHY:
+ *  - REST API = the multi-model cascade (3.1-flash-lite → flash → … → Gemma)
+ *    already handles diversity + per-model quota. Fast (1-3s) and resilient.
+ *  - Gemini CLI = ABANDONED (slow 8-88s + no image generation) → removed.
+ *  - Claude CLI = last resort (NB: auth expires → graceful failure if invalid;
+ *    and a no-op for callers without the workDir/projectDir required by callClaudeFallback).
  *
- * Chaque provider qui echoue (quota, auth, indispo) fait basculer au suivant.
- * Le resultat indique quel provider a repondu (champ `provider`) + la trace
- * des tentatives (pour diagnostic).
+ * Each provider that fails (quota, auth, unavailable) switches to the next.
+ * The result indicates which provider answered (field `provider`) + the trace
+ * of attempts (for diagnostics).
  */
 
 import { generateText, GEMINI_MODELS, isGeminiAvailable, isQuotaFailure, type GenerateTextResult } from './client';
@@ -24,22 +24,22 @@ export type RoutePref = 'quality' | 'speed';
 
 export interface RoutedTextOptions {
   prompt: string;
-  /** 'quality' (default) = CLI Pro d'abord ; 'speed' = API flash-lite d'abord. */
+  /** 'quality' (default) = Pro CLI first; 'speed' = flash-lite API first. */
   pref?: RoutePref;
-  /** Label appelant pour stats/trace. */
+  /** Caller label for stats/trace. */
   module?: string;
   temperature?: number;
   maxOutputTokens?: number;
-  /** cwd pour le CLI (isole le contexte projet). */
+  /** cwd for the CLI (isolates the project context). */
   workDir?: string;
-  /** Active le fallback Claude CLI en dernier recours. Default TRUE : le CLI
-   *  Gemini est abandonne (lent 8-88s + pas d'image gen), Claude prend le role
-   *  de filet qualite. NB : requiert une auth Claude valide (sinon echec
-   *  gracieux). Mettre explicitement false pour desactiver. */
+  /** Enables the Claude CLI fallback as a last resort. Default TRUE: the Gemini
+   *  CLI is abandoned (slow 8-88s + no image gen), Claude takes the role of
+   *  quality safety net. NB: requires valid Claude auth (otherwise graceful
+   *  failure). Set explicitly to false to disable. */
   enableClaudeFallback?: boolean;
   claudeBin?: string;
   projectDir?: string;
-  /** Force l'ordre des providers (override pref). Utile pour les tests. */
+  /** Forces the provider order (overrides pref). Useful for tests. */
   order?: ProviderName[];
 }
 
@@ -48,18 +48,18 @@ export interface ProviderAttempt {
   ok: boolean;
   durationMs: number;
   error?: string;
-  /** Skip = provider indisponible (pas de cle/token), pas tente. */
+  /** Skip = provider unavailable (no key/token), not attempted. */
   skipped?: boolean;
 }
 
 export interface RoutedTextResult extends GenerateTextResult {
-  /** Provider qui a finalement repondu, ou 'none' si tous ont echoue. */
+  /** Provider that ultimately answered, or 'none' if all failed. */
   provider: ProviderName | 'none';
   attempts: ProviderAttempt[];
 }
 
 /**
- * Genere du texte en basculant entre providers jusqu'a succes.
+ * Generates text by switching between providers until success.
  */
 export async function routedGenerateText(opts: RoutedTextOptions): Promise<RoutedTextResult> {
   const pref: RoutePref = opts.pref ?? 'quality';
@@ -76,8 +76,8 @@ export async function routedGenerateText(opts: RoutedTextOptions): Promise<Route
       const res = await generateText({
         prompt: opts.prompt,
         model: GEMINI_MODELS.flashLite,
-        // En cas de quota flash-lite, l'API tente deja flash-lite seul ; pas de
-        // fallback intra-API ici (le router gere la bascule inter-provider).
+        // On flash-lite quota, the API already tries flash-lite alone; no
+        // intra-API fallback here (the router handles the inter-provider switch).
         temperature: opts.temperature,
         maxOutputTokens: opts.maxOutputTokens,
         module: opts.module ?? 'router',
@@ -99,7 +99,7 @@ export async function routedGenerateText(opts: RoutedTextOptions): Promise<Route
     }
   }
 
-  // Tous les providers ont echoue
+  // All providers failed
   const lastErr = [...attempts].reverse().find((a) => !a.skipped)?.error
     ?? attempts[attempts.length - 1]?.error
     ?? 'aucun provider disponible';
@@ -109,19 +109,19 @@ export async function routedGenerateText(opts: RoutedTextOptions): Promise<Route
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /**
- * Ordre des providers selon la preference. Exporte pour test.
+ * Provider order based on the preference. Exported for testing.
  */
 export function defaultOrder(_pref: RoutePref): ProviderName[] {
-  // CLI Gemini ABANDONNE (lent 8-88s + aucune generation d'image) → retire de
-  // la cascade. Tout passe par l'API (cascade de modeles, cf. client.ts) puis,
-  // en dernier recours, le CLI CLAUDE (meilleure qualite de jugement). Meme
-  // ordre pour 'quality' et 'speed' : la cascade API gere deja la diversite.
+  // Gemini CLI ABANDONED (slow 8-88s + no image generation) → removed from
+  // the cascade. Everything goes through the API (model cascade, cf. client.ts)
+  // then, as a last resort, the CLAUDE CLI (better judgment quality). Same
+  // order for 'quality' and 'speed': the API cascade already handles diversity.
   return ['api', 'claude'];
 }
 
 /**
- * Fallback Claude CLI : --print texte simple. Best-effort ; l'auth Claude
- * peut etre expiree (401), auquel cas on retourne ok:false proprement.
+ * Claude CLI fallback: --print simple text. Best-effort; Claude auth may be
+ * expired (401), in which case we cleanly return ok:false.
  */
 async function callClaudeFallback(opts: RoutedTextOptions): Promise<GenerateTextResult> {
   if (!opts.workDir || !opts.projectDir) {
@@ -143,5 +143,5 @@ async function callClaudeFallback(opts: RoutedTextOptions): Promise<GenerateText
   }
 }
 
-// Re-export pour les callers qui veulent tester la nature d'une erreur.
+// Re-exported for callers that want to test the nature of an error.
 export { isQuotaFailure };

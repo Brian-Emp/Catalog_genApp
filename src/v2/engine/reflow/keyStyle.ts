@@ -1,26 +1,26 @@
 /**
- * styleKeyFromTemplate — applique le style typographique d'une key template
- *  (casse + séparateur final) à une nouvelle key. Sert au rendu des specs
- *  produit pour préserver les conventions du template.
+ * styleKeyFromTemplate — applies the typographic style of a template key
+ *  (case + trailing separator) to a new key. Used when rendering product
+ *  specs to preserve the template conventions.
  *
- *  Consolidé depuis reflowSpecs.ts et reflowSpecsV2.ts (audit #5) qui
- *  avaient deux implémentations identiques copiées-collées. Maintenant :
- *  une seule source de verité.
+ *  Consolidated from reflowSpecs.ts and reflowSpecsV2.ts (audit #5), which
+ *  had two identical copy-pasted implementations. Now: a single source of
+ *  truth.
  */
 
-/** Regex du suffixe key-value : whitespace + separateur (": = | → ·") ou
- *  whitespace seul en fin de string. Aligne avec keyValueSeparator pour
- *  les single-char seps (sans em-dash/en-dash qui sont des compose-seps). */
+/** Regex for the key-value suffix: whitespace + separator (": = | → ·") or
+ *  whitespace alone at the end of the string. Aligned with keyValueSeparator
+ *  for single-char seps (excluding em-dash/en-dash which are compose-seps). */
 const SEP_TAIL_RE = /[\s\xa0]*[:=|→·][\s\xa0]*$|[\s\xa0]+$/;
 
 /**
- * Préserve la casse et le séparateur final d'une key template, applique à
- * une nouvelle key.
+ * Preserves the case and trailing separator of a template key, applies it to
+ * a new key.
  *
  *  - "MATIÈRE :" + "longueur" → "LONGUEUR :"  (preserve all-caps + " :")
  *  - "matière =" + "Longueur" → "longueur ="  (preserve all-lower + " =")
- *  - "Matière |" + "longueur" → "longueur |"  (mixte → pas de transform casse)
- *  - "DEBIT"   + "longueur" → "LONGUEUR :"   (fallback sep " :" si absent)
+ *  - "Matière |" + "longueur" → "longueur |"  (mixed → no case transform)
+ *  - "DEBIT"   + "longueur" → "LONGUEUR :"   (fallback sep " :" if absent)
  */
 export function styleKeyFromTemplate(newKey: string, tplKeyText: string): string {
   const stripped = tplKeyText.replace(SEP_TAIL_RE, '').trim();

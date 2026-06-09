@@ -1,12 +1,12 @@
 /**
- * Cache des extracts C++ par hash du PDF template.
+ * Cache of C++ extracts keyed by the template PDF hash.
  *
- * Ratio cout/benefice : extract 188p = ~700ms ; cache hit = ~30ms (copie
- * de fichiers + parsing JSON). Gain net sur 2eme run avec meme template
- * (test, batch, re-generation apres edit xlsx) ~660ms.
+ * Cost/benefit ratio: 188p extract = ~700ms; cache hit = ~30ms (file copy
+ * + JSON parsing). Net gain on a 2nd run with the same template
+ * (test, batch, re-generation after xlsx edit) ~660ms.
  *
- * Cache disk-based dans `${os.tmpdir()}/catgen-extract-cache/<sha256>/`.
- * Eviction : si > 5 entrees, on supprime la plus ancienne (FIFO par mtime).
+ * Disk-based cache in `${os.tmpdir()}/catgen-extract-cache/<sha256>/`.
+ * Eviction: if > 5 entries, we remove the oldest (FIFO by mtime).
  */
 
 import { createHash } from 'crypto';
@@ -23,8 +23,8 @@ export async function pdfHash(pdfPath: string): Promise<string> {
 }
 
 /**
- * Si le cache contient un extract pour ce hash, copie son contenu vers
- * `targetDir` et retourne true. Sinon false (caller doit lancer l'extract).
+ * If the cache contains an extract for this hash, copies its content to
+ * `targetDir` and returns true. Otherwise false (caller must run the extract).
  */
 export async function tryRestoreFromCache(
   hash: string,
@@ -44,13 +44,13 @@ export async function tryRestoreFromCache(
       fs.copyFile(path.join(entryDir, e), path.join(targetDir, e)),
     ),
   );
-  // Touch mtime pour ordre FIFO (eviction)
+  // Touch mtime for FIFO ordering (eviction)
   const now = new Date();
   await fs.utimes(entryDir, now, now).catch(() => {});
   return true;
 }
 
-/** Sauvegarde l'extract dans le cache (best-effort, non-bloquant en cas d'echec). */
+/** Saves the extract to the cache (best-effort, non-blocking on failure). */
 export async function saveToCache(hash: string, sourceDir: string): Promise<void> {
   try {
     const entryDir = path.join(CACHE_ROOT, hash);
@@ -64,7 +64,7 @@ export async function saveToCache(hash: string, sourceDir: string): Promise<void
     );
     await evictIfNeeded();
   } catch {
-    // Best-effort : si le cache disk fail on log pas, juste tant pis.
+    // Best-effort: if the disk cache fails we don't log, just move on.
   }
 }
 

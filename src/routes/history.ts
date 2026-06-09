@@ -8,17 +8,17 @@ export const historyRouter: Router = Router();
 
 const GEN_DIR = path.resolve('generated');
 const UPLOADS_DIR = path.resolve('uploads');
-// Stamp = `<timestamp>_<hex6>` depuis le commit P0+P1 secu (randomBytes anti
-// brute force). On accepte les deux formes (avec/sans suffixe hex) pour rester
-// compatible avec les PDFs generes avant ce changement.
+// Stamp = `<timestamp>_<hex6>` since the P0+P1 security commit (randomBytes,
+// anti brute-force). We accept both forms (with/without the hex suffix) to stay
+// compatible with PDFs generated before this change.
 const STAMP = `(\\d+(?:_[a-f0-9]+)?)`;
 const PDF_RE = new RegExp(`^catalog_${STAMP}\\.pdf$`);
 const CATALOG_ANY_RE = new RegExp(`^catalog_${STAMP}(?:\\.\\w+|_work|_assets)(?:\\..+)?$`);
 const WORK_DIR_RE = new RegExp(`^_${STAMP}_work$`);
-// Pattern des fichiers crees par notre multer dans uploads/ : prefixe horodate
-// + 6 chars random + nom original. Sert a discriminer les fichiers que NOUS
-// avons crees (eligibles au GC) des fichiers eventuellement deposes a la main
-// par l'utilisateur (a preserver).
+// Pattern of files created by our multer in uploads/: timestamped prefix
+// + 6 random chars + original name. Used to tell apart the files WE created
+// (eligible for GC) from files possibly dropped in by hand by the user
+// (to preserve).
 const MANAGED_UPLOAD_RE = /^\d+-[a-z0-9]{6}-/;
 
 interface HistoryItem {
@@ -86,9 +86,9 @@ async function uploadsForStamp(stamp: string): Promise<string[]> {
   return meta.uploadedFiles.filter((x): x is string => typeof x === 'string' && x.length > 0);
 }
 
-/** Liste les uploads encore referencs par au moins une meta.json existante.
- *  Sert au GC des orphelins : tout upload "managed" non present dans cet
- *  ensemble est candidat a la suppression. */
+/** Lists uploads still referenced by at least one existing meta.json.
+ *  Used for orphan GC: any "managed" upload not present in this set is a
+ *  candidate for deletion. */
 async function listReferencedUploads(): Promise<Set<string>> {
   const referenced = new Set<string>();
   let entries: string[] = [];
@@ -108,9 +108,9 @@ async function listReferencedUploads(): Promise<Set<string>> {
   return referenced;
 }
 
-/** Supprime les uploads orphelins (managed mais plus reference par aucune meta).
- *  Couvre les cas ou la meta a ete supprimee ou corrompue, et les residus
- *  historiques accumules avant que la suppression cascade soit en place. */
+/** Removes orphan uploads (managed but no longer referenced by any meta).
+ *  Covers cases where the meta was deleted or corrupted, and historical
+ *  residue accumulated before cascade deletion was in place. */
 async function cleanupOrphanUploads(): Promise<number> {
   let entries: string[] = [];
   try {
@@ -122,10 +122,10 @@ async function cleanupOrphanUploads(): Promise<number> {
   const uploadsRoot = path.resolve(UPLOADS_DIR);
   let removed = 0;
   for (const name of entries) {
-    // Garde les fichiers non managed (deposes manuellement par l'utilisateur).
+    // Keep non-managed files (dropped in manually by the user).
     if (!MANAGED_UPLOAD_RE.test(name)) continue;
     if (referenced.has(name)) continue;
-    // Defense en profondeur path traversal.
+    // Defense-in-depth against path traversal.
     const target = path.resolve(uploadsRoot, name);
     if (target !== path.join(uploadsRoot, name)) continue;
     if (!target.startsWith(uploadsRoot + path.sep)) continue;
@@ -159,9 +159,9 @@ async function deleteOneStamp(stamp: string): Promise<boolean> {
   }
   const uploadsRoot = path.resolve(UPLOADS_DIR);
   for (const up of uploads) {
-    // Defense en profondeur : meta.json est cense ne contenir que des
-    // basenames generes par nous, mais s'il a ete edite a la main on refuse
-    // toute traversee. Le path doit rester strictement dans UPLOADS_DIR.
+    // Defense-in-depth: meta.json is supposed to contain only basenames we
+    // generated, but in case it was hand-edited we reject any traversal. The
+    // path must stay strictly within UPLOADS_DIR.
     const base = path.basename(up);
     if (!base || base.startsWith('.') || base !== up) continue;
     const target = path.resolve(uploadsRoot, base);
@@ -181,15 +181,15 @@ historyRouter.delete('/history', requireAuth, async (req, res) => {
       return;
     }
     const ok = await deleteOneStamp(m[1]);
-    // GC des uploads orphelins : recupere les residus historiques accumules
-    // (ex : meta.json deja supprimee mais uploads jamais nettoyes).
+    // GC of orphan uploads: reclaims accumulated historical residue
+    // (e.g. meta.json already deleted but uploads never cleaned up).
     const orphans = await cleanupOrphanUploads();
     res.json({ deleted: ok ? 1 : 0, orphanUploadsRemoved: orphans });
     return;
   }
 
-  // Sweep complet (sauf keep eventuel). Si keep est fourni mais malforme,
-  // on REJETTE plutot que de tout supprimer (sinon faille trivialement exploitable).
+  // Full sweep (except an optional keep). If keep is provided but malformed,
+  // we REJECT rather than delete everything (otherwise a trivially exploitable hole).
   const keep = String(req.query.keep ?? '').trim();
   let keepStamp: string | null = null;
   if (keep) {

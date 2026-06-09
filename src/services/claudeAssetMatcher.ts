@@ -1,14 +1,14 @@
 /**
- * Matching intelligent produit ↔ asset image par Claude.
+ * Smart product ↔ image asset matching via Claude.
  *
- * Cas d'usage : quand l'heuristique (par ref/sku/slug nom) ne trouve pas
- * d'asset pour un produit, on demande a Claude d'inspecter les noms d'assets
- * disponibles et le nom du produit pour proposer une correspondance.
+ * Use case: when the heuristic (by ref/sku/name slug) fails to find an asset
+ * for a product, we ask Claude to inspect the available asset names and the
+ * product name to propose a match.
  *
- * Strategie : appel optionnel sur les produits sans image_path, declenche
- * uniquement si > 30% des produits sont orphelins ET au moins 1 asset existe.
- * Sinon skip silencieux. Claude propose le baseName (sans extension) de
- * l'asset le plus probable, ou null si rien d'evident.
+ * Strategy: optional call on products without an image_path, triggered only
+ * if > 30% of products are orphaned AND at least 1 asset exists. Otherwise
+ * silent skip. Claude proposes the baseName (without extension) of the most
+ * likely asset, or null if nothing is obvious.
  */
 import { promises as fs } from 'fs';
 import path from 'path';

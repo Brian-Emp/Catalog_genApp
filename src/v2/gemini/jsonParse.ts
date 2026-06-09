@@ -1,22 +1,22 @@
 /**
- * Parser JSON tolerant pour reponses Gemini.
+ * Tolerant JSON parser for Gemini responses.
  *
- * Gemini retourne souvent :
+ * Gemini often returns:
  *  - ```json {...} ``` (markdown fence)
- *  - prose avant + {...} + prose apres
- *  - juste {...} (cas ideal)
+ *  - prose before + {...} + prose after
+ *  - just {...} (ideal case)
  *
- * Ce parser :
- *  1. Strip les fences markdown
- *  2. Tente JSON.parse direct
- *  3. Si fail : extract le 1er {...} balance et reessaie
- *  4. Retourne null si tout fail
+ * This parser:
+ *  1. Strips the markdown fences
+ *  2. Tries a direct JSON.parse
+ *  3. On failure: extracts the first balanced {...} and retries
+ *  4. Returns null if everything fails
  *
- * Centralise pour eviter la duplication de 5+ parsers dans les modules.
+ * Centralized to avoid duplicating 5+ parsers across the modules.
  */
 
 /**
- * Parse une reponse texte Gemini en objet JSON. Retourne null si non parseable.
+ * Parses a Gemini text response into a JSON object. Returns null if not parseable.
  */
 export function parseGeminiJson<T = unknown>(text: string): T | null {
   if (!text || typeof text !== 'string') return null;
@@ -27,7 +27,7 @@ export function parseGeminiJson<T = unknown>(text: string): T | null {
   try {
     return JSON.parse(stripped) as T;
   } catch {
-    // Fallback : extract le 1er {...} ou [...] balance
+    // Fallback: extract the first balanced {...} or [...]
     const objMatch = stripped.match(/\{[\s\S]*\}/);
     if (objMatch) {
       try { return JSON.parse(objMatch[0]) as T; } catch { /* fall */ }

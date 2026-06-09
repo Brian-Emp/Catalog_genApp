@@ -1,17 +1,17 @@
 /**
- * Intent loop Gemini : boucle d'audit + propositions de correction.
+ * Gemini intent loop: audit loop + correction proposals.
  *
- * Phase 1 (ce module) : pour chaque bug visuel detecte, demande a Gemini
- * Vision une PROPOSITION d'intent textuel ("decaler le titre de 4pt vers
- * la gauche", "augmenter la taille du nom produit de 11 a 13pt", etc.).
+ * Phase 1 (this module): for each detected visual bug, ask Gemini Vision for
+ * a textual intent PROPOSAL ("shift the title 4pt to the left", "increase the
+ * product name size from 11 to 13pt", etc.).
  *
- * Phase 2 (TODO) : interpreter ces intents en ops concretes (erase+insert
- * avec parametres ajustes) et relancer le render. Boucle jusqu'a convergence
- * (zero issues critical ou max_iterations atteint).
+ * Phase 2 (TODO): interpret these intents into concrete ops (erase+insert
+ * with adjusted parameters) and re-run the render. Loop until convergence
+ * (zero critical issues or max_iterations reached).
  *
- * Aujourd'hui : on retourne juste les intents textuels pour visualisation
- * dans les warnings UI. L'application reste manuelle (le dev modifie le
- * code/prompt selon les suggestions).
+ * Today: we just return the textual intents for visualization in the UI
+ * warnings. Application stays manual (the dev edits the code/prompt based on
+ * the suggestions).
  */
 
 import { promises as fs } from 'fs';
@@ -24,8 +24,8 @@ import type { VisualAuditIssue } from '../engine/visualAudit';
 export interface IntentLoopOptions {
   outPdfPath: string;
   plan: Plan;
-  /** Bugs detectes par visualAudit (page-par-page). On propose des corrections
-   *  pour les critiques uniquement. */
+  /** Bugs detected by visualAudit (page-by-page). We propose corrections
+   *  for the critical ones only. */
   issues: VisualAuditIssue[];
   workDir: string;
   enabled?: boolean;
@@ -33,13 +33,13 @@ export interface IntentLoopOptions {
 }
 
 export interface IntentSuggestion {
-  /** Page concernee. */
+  /** Page concerned. */
   finalPageNumber: number;
-  /** Issue d'origine (rappel). */
+  /** Original issue (reminder). */
   issueDescription: string;
-  /** Intent textuel propose par Gemini (description de l'action). */
+  /** Textual intent proposed by Gemini (description of the action). */
   intent: string;
-  /** Confiance (subjective, 0-1). */
+  /** Confidence (subjective, 0-1). */
   confidence: number;
 }
 
@@ -63,14 +63,14 @@ export async function geminiIntentLoop(
     return { ran: false, suggestions: [], durationMs: Date.now() - t0, notes: ['GEMINI_KEY absente'] };
   }
 
-  // On ne propose des corrections que pour les CRITICAL (les minor ne valent
-  // pas le quota Gemini supplementaire).
+  // We only propose corrections for the CRITICAL ones (the minor ones aren't
+  // worth the extra Gemini quota).
   const critical = opts.issues.filter((i) => i.severity === 'critical');
   if (critical.length === 0) {
     return { ran: false, suggestions: [], durationMs: Date.now() - t0, notes: ['aucun bug critique a corriger'] };
   }
 
-  // Group issues par page (1 appel Gemini par page avec ses issues)
+  // Group issues per page (1 Gemini call per page with its issues)
   const byPage = new Map<number, VisualAuditIssue[]>();
   for (const issue of critical) {
     const arr = byPage.get(issue.finalPageNumber) ?? [];
@@ -100,7 +100,7 @@ export async function geminiIntentLoop(
       model: opts.model ?? GEMINI_MODELS.flash,
       fallbackModel: GEMINI_MODELS.flashLite,
       module: 'intentLoop',
-      // Boucle d'intention auxiliaire : fail-fast sur quota (cf. visualAudit).
+      // Auxiliary intent loop: fail-fast on quota (cf. visualAudit).
       maxRetryDelayMs: 8000,
     });
     if (!res.ok || !res.text) {

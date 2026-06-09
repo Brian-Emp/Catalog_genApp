@@ -1,38 +1,38 @@
 /**
- * Translation de glyphes unicode "exotiques" -> ASCII proche, pour eviter
- * les `.notdef` sur les fonts a couverture limitee (Helvetica WinAnsi, fonts
- * embeddees subsets sans Cyrillic, etc.).
+ * Translation of "exotic" unicode glyphs -> nearest ASCII, to avoid
+ * `.notdef` on fonts with limited coverage (Helvetica WinAnsi, embedded
+ * subsets without Cyrillic, etc.).
  *
- * Porte de `python/substitute.py:_GLYPH_FALLBACKS` (V1).
+ * Ported from `python/substitute.py:_GLYPH_FALLBACKS` (V1).
  */
 
 const GLYPH_FALLBACKS: Record<string, string> = {
-  // Apostrophes / quotes courbes
+  // Curly apostrophes / quotes
   '’': "'", '‘': "'", '‚': ',', '‛': "'",
   '“': '"', '”': '"', '„': '"', '‟': '"',
   '«': '"', '»': '"', '‹': "'", '›': "'",
-  // Modifier letter apostrophes (parfois utilisees en transliteration)
+  // Modifier letter apostrophes (sometimes used in transliteration)
   'ʼ': "'", 'ʹ': "'", 'ʻ': "'", 'ˈ': "'",
-  // Primes (notation imperiale : pieds/pouces, minutes/secondes d'arc)
+  // Primes (imperial notation: feet/inches, arcminutes/arcseconds)
   '′': "'", '″': '"', '‴': "'''",
-  // Tirets cadratin / demi-cadratin
+  // Em / en dashes
   '–': '-', '—': '-', '‒': '-', '―': '-', '−': '-',
-  // Hyphens speciaux (souvent absents des subsets, casse les mots composes)
+  // Special hyphens (often missing from subsets, breaks compound words)
   '‐': '-', '‑': '-', '­': '-',
-  // Espaces speciaux (NBSP, narrow NBSP, em-space, etc.)
+  // Special spaces (NBSP, narrow NBSP, em-space, etc.)
   ' ': ' ', ' ': ' ', ' ': ' ', ' ': ' ', ' ': ' ',
   '​': '', ' ': ' ', '﻿': '',
-  // Ellipses & puces
+  // Ellipses & bullets
   '…': '...', '‧': '.', '·': '.',
   '•': '-', '◦': '-', '▪': '-', '▫': '-',
   '∙': '.', '⋅': '.', '∗': '*',
   '※': '*', '⁂': '*', '⁕': '*',
-  // Fleches
+  // Arrows
   '→': '->', '←': '<-', '↑': '^', '↓': 'v',
   '↔': '<->', '↕': '^v',
   '⇒': '=>', '⇐': '<=', '⇑': '^^', '⇓': 'vv',
   '⇔': '<=>', '⇕': '^^vv',
-  // Exposants/indices courants
+  // Common superscripts/subscripts
   '²': '2', '³': '3', '¹': '1', '⁰': '0',
   '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9',
   '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4',
@@ -47,34 +47,34 @@ const GLYPH_FALLBACKS: Record<string, string> = {
   '≈': '~', '≃': '~', '≅': '~',
   '∞': 'inf', '√': 'sqrt', '∑': 'sum', '∆': 'delta', 'π': 'pi',
   '∂': 'd', '∇': 'nabla',
-  // Diametre (plomberie / sanitaire : "⌀ 32mm")
+  // Diameter (plumbing / sanitary: "⌀ 32mm")
   '⌀': 'diam ', '∅': 'diam ',
-  // Monnaies
+  // Currencies
   '€': 'EUR', '£': 'GBP', '¥': 'YEN', '¢': 'c',
   '₩': 'KRW', '₹': 'INR', '₪': 'ILS', '฿': 'THB',
   '₣': 'CHF', '₤': 'GBP', '₿': 'BTC',
-  // Symboles legaux
+  // Legal symbols
   '©': '(c)', '®': '(r)', '™': 'TM', '℠': 'SM',
-  // Typographie
+  // Typography
   '§': 'S', '¶': 'P', '†': '+', '‡': '++',
   '№': 'No', '℮': 'e',
   '‱': 'pm10k', '‰': 'pm',
-  // Ligatures latines
+  // Latin ligatures
   'œ': 'oe', 'Œ': 'OE', 'æ': 'ae', 'Æ': 'AE',
-  // Ligatures fi / fl / ff (souvent absentes des subsets)
+  // fi / fl / ff ligatures (often missing from subsets)
   'ﬁ': 'fi', 'ﬂ': 'fl', 'ﬀ': 'ff',
   'ﬃ': 'ffi', 'ﬄ': 'ffl',
   'ﬅ': 'st', 'ﬆ': 'st',
 };
 
 /**
- * Remplace les glyphes exotiques par leur equivalent ASCII proche. Garde
- * les caracteres accentues francais (é, à, ô...) tels quels — ils sont
- * couverts par la majorite des fonts WinAnsi/MacRoman.
+ * Replaces exotic glyphs with their nearest ASCII equivalent. Keeps French
+ * accented characters (é, à, ô...) as-is — they are covered by most
+ * WinAnsi/MacRoman fonts.
  *
- * Si une font n'a pas un caractere demande, le rendu PDF affiche un
- * rectangle vide ou le glyph .notdef. safeText elimine les cas les plus
- * frequents (typographie InDesign, smart quotes, ligatures).
+ * If a font lacks a requested character, the PDF render shows an empty
+ * rectangle or the .notdef glyph. safeText eliminates the most frequent
+ * cases (InDesign typography, smart quotes, ligatures).
  */
 export function safeText(text: string): string {
   if (!text) return text;

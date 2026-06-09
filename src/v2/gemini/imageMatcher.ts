@@ -1,9 +1,9 @@
 /**
- * Smart image matcher via Gemini : match noms produit ↔ assets quand
- * l'heuristique slug/ref ne suffit pas (cas noms d'assets exotiques).
+ * Smart image matcher via Gemini: matches product names ↔ assets when the
+ * slug/ref heuristic is not enough (case of exotic asset names).
  *
- * Contract identique a claudeMatchAssets pour swap drop-in. Gemini Flash =
- * gratuit + rapide (vs Claude payant + expirable).
+ * Contract identical to claudeMatchAssets for a drop-in swap. Gemini Flash =
+ * free + fast (vs Claude paid + expirable).
  */
 
 import { isGeminiAvailable } from './client';
@@ -22,7 +22,7 @@ export interface AssetEntry {
 }
 
 export interface ImageMatch {
-  /** Index dans le tableau original products. */
+  /** Index into the original products array. */
   idx: number;
   absPath: string;
 }
@@ -37,7 +37,7 @@ export interface GeminiImageMatcherResult {
   matched: ImageMatch[];
   ran: boolean;
   durationMs: number;
-  /** Cout estime. Gemini free tier = 0. */
+  /** Estimated cost. Gemini free tier = 0. */
   costUsd?: number;
   notes: string[];
 }
@@ -64,15 +64,15 @@ export async function geminiMatchAssets(
     return { matched: [], ran: false, durationMs: Date.now() - t0, notes: ['GEMINI_KEY absente'] };
   }
 
-  // Cap pour eviter prompts geants
+  // Cap to avoid giant prompts
   const products = opts.unmatchedProducts.slice(0, MAX_PRODUCTS);
   const assets = opts.assets.slice(0, MAX_ASSETS);
 
   const prompt = buildPrompt(products, assets);
   const res = await routedGenerateText({
     prompt,
-    // pref 'speed' : matching deterministe, API flash-lite ideale.
-    // Fallback CLI Gemini Pro si quota API.
+    // pref 'speed': deterministic matching, flash-lite API ideal.
+    // Fallback to the Gemini Pro CLI if API quota is hit.
     pref: 'speed',
     temperature: 0.1,
     maxOutputTokens: 2048,
@@ -89,7 +89,7 @@ export async function geminiMatchAssets(
     return { matched: [], ran: true, durationMs: Date.now() - t0, notes };
   }
 
-  // Validation : chaque baseName retourné doit exister dans assets
+  // Validation: each returned baseName must exist in assets
   const assetByBase = new Map(assets.map((a) => [a.baseName, a.absPath]));
   const productByIdx = new Map(products.map((p) => [p.idx, p]));
   const matched: ImageMatch[] = [];

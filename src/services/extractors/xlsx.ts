@@ -4,12 +4,12 @@ import type { XlsxData } from '../../types';
 
 const MAX_XLSX_BYTES = Number(process.env.MAX_XLSX_BYTES) || 100 * 1024 * 1024;
 
-/** Convertit une cellule ExcelJS en string lisible.
- *  Gere : strings, nombres, Date, formules (.result), hyperliens (.text),
+/** Converts an ExcelJS cell into a readable string.
+ *  Handles: strings, numbers, Date, formulas (.result), hyperlinks (.text),
  *  RichText (.richText[]), null/undefined. */
-/** Erreurs Excel (#REF!, #N/A, etc.) traitees comme cellules vides : leur
- *  injection dans les specs polluerait les fiches produit avec du bruit
- *  technique non-informatif. */
+/** Excel errors (#REF!, #N/A, etc.) treated as empty cells: injecting them
+ *  into the specs would pollute the product sheets with non-informative
+ *  technical noise. */
 const EXCEL_ERROR_VALUES = new Set([
   '#REF!', '#N/A', '#NAME?', '#DIV/0!', '#VALUE!', '#NULL!', '#NUM!',
   '#GETTING_DATA', '#SPILL!', '#CALC!', '#FIELD!',
@@ -24,14 +24,14 @@ export function cellToString(cell: unknown): string {
   if (cell instanceof Date) return cell.toISOString().slice(0, 10);
   if (typeof cell === 'number' || typeof cell === 'boolean') return String(cell);
   if (typeof cell === 'string') {
-    // Erreur Excel → cellule vide (evite "#REF!" dans une fiche produit).
+    // Excel error → empty cell (avoids "#REF!" in a product sheet).
     return isExcelError(cell) ? '' : cell;
   }
   if (typeof cell === 'object') {
     const c = cell as Record<string, unknown>;
-    // ExcelJS encode les erreurs en { error: '#REF!' } ou { result: { error: ... } }.
+    // ExcelJS encodes errors as { error: '#REF!' } or { result: { error: ... } }.
     if ('error' in c && typeof c.error === 'string') {
-      return ''; // erreur explicite → vide
+      return ''; // explicit error → empty
     }
     if (Array.isArray((c as { richText?: unknown[] }).richText)) {
       return (c.richText as { text?: string }[]).map((r) => r.text ?? '').join('');
@@ -40,7 +40,7 @@ export function cellToString(cell: unknown): string {
       return cellToString(c.text);
     }
     if ('result' in c && c.result != null) {
-      // result d'une formule : peut etre un nombre, string, ou erreur
+      // result of a formula: can be a number, string, or error
       return cellToString(c.result);
     }
     if ('hyperlink' in c && typeof c.hyperlink === 'string') return c.hyperlink;
@@ -50,10 +50,10 @@ export function cellToString(cell: unknown): string {
   return isExcelError(str) ? '' : str;
 }
 
-/** True si TOUTES les cellules de la row sont vides ou whitespace-only.
- *  Sert au filtre post-extraction pour ignorer les separateurs visuels
- *  (lignes vides intercalaires) qui creent des produits fantomes
- *  "Produit N+1" dans le pipeline. */
+/** True if ALL the cells in the row are empty or whitespace-only.
+ *  Used by the post-extraction filter to ignore visual separators (blank
+ *  interleaved rows) that create phantom "Produit N+1" products in the
+ *  pipeline. */
 export function isRowAllBlank(row: Record<string, string>): boolean {
   for (const v of Object.values(row)) {
     if (v != null && String(v).trim().length > 0) return false;
@@ -61,20 +61,20 @@ export function isRowAllBlank(row: Record<string, string>): boolean {
   return true;
 }
 
-/** Trouve l'index probable de la ligne header dans le tableau brut.
+/** Finds the probable index of the header row in the raw table.
  *
- *  Cas typiques :
- *   - row 0 = vraie ligne header (cas standard) → return 0
- *   - row 0 = titre du catalogue ("Catalogue 2026"), row 1 = vrais headers
+ *  Typical cases:
+ *   - row 0 = real header row (standard case) → return 0
+ *   - row 0 = catalog title ("Catalogue 2026"), row 1 = real headers
  *     → return 1
  *   - row 0 = "Edition Printemps", row 1 = "Liste des produits", row 2 = headers
  *     → return 2
  *
- *  Heuristique : on scanne les 5 premieres rows et on prend la 1ere qui a
- *  >= MIN_HEADER_CELLS cellules non vides (= ressemble a un header tabulaire,
- *  pas a un titre 1-cell).
+ *  Heuristic: we scan the first 5 rows and take the first one that has
+ *  >= MIN_HEADER_CELLS non-empty cells (= looks like a tabular header, not a
+ *  1-cell title).
  *
- *  Si aucune ne match : return 0 (fallback safe = comportement legacy). */
+ *  If none match: return 0 (safe fallback = legacy behavior). */
 export function findHeaderRowIndex(rows: unknown[][]): number {
   const MIN_HEADER_CELLS = 3;
   const MAX_SCAN_ROWS = 5;
@@ -89,8 +89,8 @@ export function findHeaderRowIndex(rows: unknown[][]): number {
   return 0;
 }
 
-/** Dedupliques les en-tetes en ajoutant un suffixe " (2)", " (3)" etc.
- *  Strings vides remplacees par "Col1", "Col2"... */
+/** Deduplicates the headers by adding a " (2)", " (3)" suffix etc.
+ *  Empty strings replaced by "Col1", "Col2"... */
 function uniqueHeaders(raw: string[]): string[] {
   const out: string[] = [];
   const seen = new Map<string, number>();
@@ -104,8 +104,8 @@ function uniqueHeaders(raw: string[]): string[] {
   return out;
 }
 
-/** Mots-cles (lowercase) qui suggerent qu'un onglet contient les donnees
- *  produit principales. Multi-langue. Pondere positivement dans pickSheet. */
+/** Keywords (lowercase) that suggest a sheet contains the main product data.
+ *  Multi-language. Weighted positively in pickSheet. */
 const PRODUCT_SHEET_KEYWORDS = [
   // FR
   'produit', 'produits', 'article', 'articles', 'catalogue', 'gamme',
@@ -121,8 +121,8 @@ const PRODUCT_SHEET_KEYWORDS = [
   'produto', 'produtos', 'artigo', 'artigos', 'catalogo',
 ];
 
-/** Mots-cles negatifs : onglets metadata / instructions / config qu'on ne
- *  veut PAS prendre comme onglet produit. */
+/** Negative keywords: metadata / instructions / config sheets that we do NOT
+ *  want to pick as the product sheet. */
 const NON_PRODUCT_SHEET_KEYWORDS = [
   'note', 'notes', 'readme', 'lisez-moi', 'instruction', 'instructions',
   'mode emploi', 'aide', 'help', 'config', 'parametre', 'parametres',
@@ -131,37 +131,37 @@ const NON_PRODUCT_SHEET_KEYWORDS = [
 ];
 
 /**
- * Etat d'un onglet ExcelJS. 'visible' = visible dans l'UI Excel, 'hidden'
- * = caché mais reaffichable, 'veryHidden' = cache via VBA inacessible UI.
+ * State of an ExcelJS sheet. 'visible' = visible in the Excel UI, 'hidden'
+ * = hidden but re-showable, 'veryHidden' = hidden via VBA, UI-inaccessible.
  */
 export type SheetState = 'visible' | 'hidden' | 'veryHidden';
 
-/** Bonus de score si le nom de l'onglet contient un mot-cle produit
- *  (PRODUCT_SHEET_KEYWORDS). Equivalent a "+200 rows" → typiquement
- *  prevaut sur un ecart de cardinalite raisonnable. */
+/** Score bonus if the sheet name contains a product keyword
+ *  (PRODUCT_SHEET_KEYWORDS). Equivalent to "+200 rows" → typically
+ *  outweighs a reasonable cardinality gap. */
 const SHEET_KEYWORD_BONUS = 200;
-/** Penalite symetrique pour les mots-cles "non-product" (notes, config). */
+/** Symmetric penalty for the "non-product" keywords (notes, config). */
 const SHEET_NEGATIVE_PENALTY = 200;
-/** Penalite massive pour les onglets masques (hidden/veryHidden).
- *  Le but : ne JAMAIS les selectionner sauf si c'est le seul disponible.
- *  10000 = 10000 rows equivalentes → en pratique aucun onglet visible
- *  meme petit ne descend en dessous. */
+/** Massive penalty for hidden sheets (hidden/veryHidden).
+ *  The goal: NEVER select them unless it's the only one available.
+ *  10000 = 10000 equivalent rows → in practice no visible sheet, even a
+ *  small one, drops below that. */
 const SHEET_HIDDEN_PENALTY = 10000;
 
 /**
- * Selectionne l'onglet le plus probable de contenir les donnees produit
- * principales parmi tous les onglets non vides.
+ * Selects the sheet most likely to contain the main product data among all
+ * non-empty sheets.
  *
  * Score = (rowCount) + bonus_keyword + penalty_non_product + penalty_hidden
- *   - rowCount : nb de lignes (l'onglet le plus rempli gagne par defaut)
- *   - bonus : +200 si nom contient "produit"/"product"/etc. (multi-langue)
- *   - penalty : -200 si nom contient "note"/"readme"/"config"/etc.
- *   - penalty : -10000 si l'onglet est masque (hidden/veryHidden) — on
- *     ne veut JAMAIS le prendre comme onglet principal sauf si c'est le
- *     seul disponible (les utilisateurs masquent typiquement les onglets
- *     "config" ou "lookup tables" pour clarifier la vue produit)
+ *   - rowCount: number of rows (the most filled sheet wins by default)
+ *   - bonus: +200 if name contains "produit"/"product"/etc. (multi-language)
+ *   - penalty: -200 if name contains "note"/"readme"/"config"/etc.
+ *   - penalty: -10000 if the sheet is hidden (hidden/veryHidden) — we
+ *     NEVER want to take it as the main sheet unless it's the only one
+ *     available (users typically hide the "config" or "lookup tables"
+ *     sheets to declutter the product view)
  *
- * En cas d'egalite (rare), prend le 1er onglet (ordre Excel original).
+ * In case of a tie (rare), takes the first sheet (original Excel order).
  */
 export function pickProductSheet(
   worksheets: { name: string; rowCount: number; state?: SheetState }[],
@@ -183,8 +183,8 @@ export function pickProductSheet(
     if (NON_PRODUCT_SHEET_KEYWORDS.some((kw) => nameLower.includes(kw))) {
       score -= SHEET_NEGATIVE_PENALTY;
     }
-    // Penalite forte pour les onglets masques : ils contiennent typiquement
-    // des tables de lookup, parametres, etc. — pas le catalogue produit.
+    // Strong penalty for hidden sheets: they typically contain lookup tables,
+    // parameters, etc. — not the product catalog.
     if (ws.state === 'hidden' || ws.state === 'veryHidden') {
       score -= SHEET_HIDDEN_PENALTY;
     }
@@ -205,15 +205,15 @@ export async function extractXlsx(filePath: string): Promise<XlsxData> {
   await wb.xlsx.readFile(filePath);
   const sheets = wb.worksheets.map((s) => s.name);
 
-  // Selection intelligente de l'onglet produit : si plusieurs onglets, on
-  // privilegie celui qui contient un mot-cle "produit" dans son nom ou le
-  // plus rempli. Sans ca, un XLSX avec 1er onglet "Notes" ferait rater les
-  // vrais produits.
+  // Smart product sheet selection: if there are several sheets, we favor the
+  // one that contains a "product" keyword in its name or the most filled one.
+  // Without this, an XLSX with a first sheet "Notes" would miss the real
+  // products.
   const sheetInfos = wb.worksheets.map((s) => ({
     name: s.name,
     rowCount: s.rowCount,
-    // ExcelJS expose s.state : 'visible' / 'hidden' / 'veryHidden'.
-    // Cast safe car la valeur est toujours dans ce set d'enum.
+    // ExcelJS exposes s.state: 'visible' / 'hidden' / 'veryHidden'.
+    // Safe cast since the value is always within this enum set.
     state: (s as unknown as { state?: SheetState }).state ?? 'visible',
   }));
   const picked = pickProductSheet(sheetInfos);
@@ -228,17 +228,17 @@ export async function extractXlsx(filePath: string): Promise<XlsxData> {
     rows.push(values.slice(1));
   });
 
-  // Detection robuste de la ligne header : skip eventuels titres en tete
-  // de feuille ("Catalogue 2026", "Edition Printemps") qui n'ont qu'1-2
-  // cellules non vides et ne sont PAS des headers tabulaires.
+  // Robust header row detection: skip any titles at the top of the sheet
+  // ("Catalogue 2026", "Edition Printemps") that only have 1-2 non-empty
+  // cells and are NOT tabular headers.
   const headerIdx = findHeaderRowIndex(rows);
   const rawHeaders = ((rows[headerIdx] as unknown[]) ?? []).map(cellToString);
   const headers = uniqueHeaders(rawHeaders);
   const dataRows = rows.slice(headerIdx + 1);
-  // Skip rows ou TOUTES les cellules sont vides apres trim. ExcelJS
-  // includeEmpty:false ne couvre QUE les rows totalement vides ; une row
-  // avec uniquement whitespace ou des cellules formatees vides passe le
-  // filtre et pollue la sortie (produit fantome "Produit N+1").
+  // Skip rows where ALL the cells are empty after trim. ExcelJS
+  // includeEmpty:false only covers fully empty rows; a row with only
+  // whitespace or empty formatted cells passes the filter and pollutes the
+  // output (phantom product "Produit N+1").
   const allRows = dataRows
     .map((r) => {
       const obj: Record<string, string> = {};
@@ -253,8 +253,8 @@ export async function extractXlsx(filePath: string): Promise<XlsxData> {
     kind: 'xlsx',
     sheets,
     headers,
-    // rowCount = nb rows EFFECTIVES (post-filter whitespace-only). Sert au
-    // monitoring + UI feedback.
+    // rowCount = number of EFFECTIVE rows (post whitespace-only filter). Used
+    // for monitoring + UI feedback.
     rowCount: allRows.length,
     rows: allRows,
   };

@@ -1,32 +1,32 @@
 /**
- * Stats d'usage Gemini : compteur in-memory des appels, latences et statuts.
+ * Gemini usage stats: in-memory counter of calls, latencies and statuses.
  *
- * Utilise pour :
- *  - mesurer l'economie quota Gemini vs Claude (cache hit ratio, ratio retry)
- *  - debug : afficher dans le diagnostic UI ou warnings pipeline
- *  - estimer le cout d'une generation (Gemini free tier = $0, mais sert
- *    quand-meme a comparer perfs)
+ * Used for:
+ *  - measuring Gemini quota savings vs Claude (cache hit ratio, retry ratio)
+ *  - debug: display in the UI diagnostics or pipeline warnings
+ *  - estimating the cost of a generation (Gemini free tier = $0, but still
+ *    useful for comparing performance)
  *
- * Reset : explicite via `resetStats()` ou au boot du process.
+ * Reset: explicitly via `resetStats()` or at process boot.
  */
 
 export interface GeminiCallRecord {
-  /** Module appelant (audit / mapping / matcher / etc.). */
+  /** Calling module (audit / mapping / matcher / etc.). */
   module: string;
-  /** Modele utilise (gemini-2.5-flash, gemini-2.5-pro, ...). */
+  /** Model used (gemini-2.5-flash, gemini-2.5-pro, ...). */
   model: string;
-  /** Statut final apres retry. */
+  /** Final status after retry. */
   status: 'ok' | 'error' | 'retry_exhausted' | 'cache_hit';
-  /** Latence ms (0 pour cache hit). */
+  /** Latency ms (0 for cache hit). */
   durationMs: number;
-  /** Code erreur si KO (ex 429, 401). */
+  /** Error code if KO (e.g. 429, 401). */
   errorCode?: number;
-  /** True si la reponse vient du fallbackModel (degradation quota). */
+  /** True if the response comes from the fallbackModel (quota degradation). */
   usedFallback?: boolean;
-  /** Tokens prompt + candidates (proxy consommation quota). */
+  /** Prompt + candidate tokens (quota consumption proxy). */
   promptTokens?: number;
   candidateTokens?: number;
-  /** Timestamp epoch ms. */
+  /** Epoch timestamp ms. */
   timestamp: number;
 }
 
@@ -36,10 +36,10 @@ interface StatsAggregate {
   errorCalls: number;
   cacheHits: number;
   retryExhausted: number;
-  /** Nombre d'appels ou` le fallbackModel a sauve (degradation reussie). */
+  /** Number of calls where the fallbackModel saved the day (successful degradation). */
   fallbacksUsed: number;
   totalDurationMs: number;
-  /** Tokens cumules (proxy consommation quota daily). */
+  /** Cumulative tokens (daily quota consumption proxy). */
   totalPromptTokens: number;
   totalCandidateTokens: number;
   /** Map errorCode → count. */
@@ -48,8 +48,8 @@ interface StatsAggregate {
   byModule: Record<string, number>;
   /** Map model → count. */
   byModel: Record<string, number>;
-  /** Detail par modele : appels / ok / quota(429). Sert a l'UI a montrer
-   *  QUELS modeles sont epuises (quota journalier atteint) vs sains. */
+  /** Per-model detail: calls / ok / quota(429). Used by the UI to show
+   *  WHICH models are exhausted (daily quota reached) vs healthy. */
   byModelDetail: Record<string, { calls: number; ok: number; quota: number }>;
 }
 
@@ -57,7 +57,7 @@ let records: GeminiCallRecord[] = [];
 
 export function recordCall(rec: Omit<GeminiCallRecord, 'timestamp'>): void {
   records.push({ ...rec, timestamp: Date.now() });
-  // Cap memoire : on garde les 1000 derniers (rolling window)
+  // Memory cap: we keep the last 1000 (rolling window)
   if (records.length > 1000) {
     records = records.slice(-1000);
   }
@@ -118,8 +118,8 @@ export function resetStats(): void {
 }
 
 /**
- * Snapshot du nombre de records actuels. Utile pour mesurer le delta sur
- * une operation specifique (ex : un seul run de pipeline) :
+ * Snapshot of the current record count. Useful for measuring the delta over
+ * a specific operation (e.g. a single pipeline run):
  *
  *   const before = snapshotMark();
  *   // ... pipeline ...
@@ -130,7 +130,7 @@ export function snapshotMark(): number {
 }
 
 /**
- * Agrege seulement les records ajoutes APRES un snapshot mark.
+ * Aggregates only the records added AFTER a snapshot mark.
  */
 export function statsSince(mark: number): StatsAggregate {
   const agg = emptyAggregate();
@@ -138,7 +138,7 @@ export function statsSince(mark: number): StatsAggregate {
   return agg;
 }
 
-/** Format un StatsAggregate fourni (vs formatStats() qui utilise globalement). */
+/** Formats a provided StatsAggregate (vs formatStats() which uses the global one). */
 export function formatAggregate(s: StatsAggregate): string {
   if (s.totalCalls === 0) return 'Gemini : 0 calls';
   const avgMs = Math.round(s.totalDurationMs / s.totalCalls);
@@ -158,7 +158,7 @@ export function formatAggregate(s: StatsAggregate): string {
   return `Gemini : ${parts.join(', ')}`;
 }
 
-/** Format human-readable des stats pour log/diagnostic. */
+/** Human-readable format of the stats for log/diagnostics. */
 export function formatStats(): string {
   const s = getStats();
   if (s.totalCalls === 0) return 'Gemini : 0 calls';

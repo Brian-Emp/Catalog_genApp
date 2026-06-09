@@ -30,25 +30,25 @@ function escapeHtml(s) {
   }[c]));
 }
 
-/** Construit une liste de messages diagnostiques en francais lisible a partir
- *  des stats. Niveau : 'ok' (vert), 'info' (bleu), 'warn' (orange), 'err' (rouge).
- *  Aucun message back-end : tout est derive cote client a partir du payload JSON. */
-/** Classe un avertissement : true = VRAI problème (perte de données / rendu
- *  cassé / échec) qui doit faire baisser le score ; false = informatif (déroulé
- *  normal du pipeline : quota/cascade, drop de pages template attendu, sommaire,
- *  colonnes détectées…). Conservateur : on ne pénalise que ce qui est vraiment
- *  un défaut. */
+/** Builds a list of diagnostic messages in readable French from
+ *  the stats. Level: 'ok' (green), 'info' (blue), 'warn' (orange), 'err' (red).
+ *  No back-end message: everything is derived client-side from the JSON payload. */
+/** Classifies a warning: true = REAL problem (data loss / broken
+ *  render / failure) that should lower the score; false = informational (normal
+ *  pipeline flow: quota/cascade, expected template page drop, table of contents,
+ *  detected columns…). Conservative: we only penalize what is genuinely
+ *  a defect. */
 function isRealWarning(w) {
   const s = String(w || '');
-  // Infos : déroulé normal → NE baissent PAS le score.
+  // Infos: normal flow → do NOT lower the score.
   const INFO = /quota|cascade|bascule|\b429\b|\b503\b|relais|^sommaire|intent-driven|cahiers? techniques|inference section|section reaffect|colonnes? cat[ée]gorie|^gemini\s*:|^allocator\s*:|audit gemini skip/i;
   if (INFO.test(s)) return false;
-  // Vrais problèmes : perte de données / échec / rendu cassé.
+  // Real problems: data loss / failure / broken render.
   const REAL = /ignor[ée]|rejet|sans nom|invalide|non reconnu|illisible|corromp|introuvable|manquant|impossible|[ée]chec|exception|\berreur\b|chevauch|overflow|d[ée]bord|tronqu/i;
   return REAL.test(s);
 }
 
-/** Compte les vrais problèmes (fichiers rejetés + lignes/avertissements réels). */
+/** Counts the real problems (rejected files + real lines/warnings). */
 function countRealIssues(json) {
   const rejected = (json.rejectedFiles || []).length;
   const adapter = (json.adapterWarnings || []).filter(isRealWarning).length;
@@ -56,7 +56,7 @@ function countRealIssues(json) {
   return rejected + adapter + engine;
 }
 
-/** Détecte une auth Claude expirée (notes + warnings). */
+/** Detects an expired Claude auth (notes + warnings). */
 function claudeAuthExpired(json) {
   const notes = Array.isArray(json.claudeNotes) ? json.claudeNotes : [];
   const warns = Array.isArray(json.warnings) ? json.warnings : [];
@@ -64,11 +64,11 @@ function claudeAuthExpired(json) {
     && (/claude[^.]*\b(auth|401|expir)/i.test(n) || /authentication_error/i.test(n)));
 }
 
-/** Score V2 /100, RÉEL et précis — somme de 5 composants pondérés, transparents :
- *  produits 30 / images 20 / audit qualité 30 / enrichissement IA 10 / structure 10.
- *  Les défauts critiques de l'audit Gemini (ex : produit sous mauvais bandeau de
- *  section) font réellement chuter le score. Renvoie aussi le détail (parts) pour
- *  l'afficher : le score n'est plus une boîte noire qui vaut toujours 100. */
+/** V2 score /100, REAL and precise — sum of 5 weighted, transparent components:
+ *  products 30 / images 20 / quality audit 30 / AI enrichment 10 / structure 10.
+ *  The critical defects of the Gemini audit (e.g. product under the wrong section
+ *  banner) genuinely drop the score. Also returns the breakdown (parts) to
+ *  display it: the score is no longer a black box that always equals 100. */
 function computeScore(json) {
   const s = json.stats || {};
   const productCount = json.productCount ?? 0;
@@ -77,16 +77,16 @@ function computeScore(json) {
   const kept = s.pagesKept ?? 0;
   const tocEntries = s.tocEntriesWritten ?? 0;
 
-  // Audit = Gemini (réel, page par page) + Claude visuel (optionnel).
+  // Audit = Gemini (real, page by page) + Claude visual (optional).
   const gIssues = Array.isArray(json.geminiAuditIssues) ? json.geminiAuditIssues : [];
   const critical = gIssues.filter((i) => i.severity === 'critical').length
     + (s.visualAuditCriticalCount ?? 0);
   const minor = gIssues.filter((i) => i.severity && i.severity !== 'critical').length
     + (s.visualAuditMinorCount ?? 0);
-  // L'audit a-t-il tourné ? Pas seulement "des issues trouvées" : un audit PROPRE
-  // (0 défaut) doit compter comme vérifié, sinon on pénalise une page parfaite.
-  // Signal fiable = le warning "audit Gemini : N issue(s) … sur M page(s)" émis
-  // par l'orchestrator quand l'audit s'exécute (≠ "skip" / "erreur").
+  // Did the audit run? Not just "issues found": a CLEAN audit
+  // (0 defects) must count as verified, otherwise we penalize a perfect page.
+  // Reliable signal = the warning "audit Gemini : N issue(s) … sur M page(s)" emitted
+  // by the orchestrator when the audit runs (≠ "skip" / "erreur").
   const warnsArr = Array.isArray(json.warnings) ? json.warnings : [];
   const geminiAuditRan = warnsArr.some((w) => typeof w === 'string'
     && /(audit|coherence) gemini\s*:\s*\d+\s*issue/i.test(w));
@@ -95,23 +95,23 @@ function computeScore(json) {
 
   const parts = [];
 
-  // Produits placés (30)
+  // Products placed (30)
   parts.push({
     label: 'Produits placés', max: 30,
     earned: productCount > 0 ? 30 * (used / productCount) : 0,
     note: productCount > 0 ? `${used}/${productCount}` : 'aucun produit',
   });
 
-  // Images appariées (20)
+  // Images matched (20)
   parts.push({
     label: 'Images appariées', max: 20,
     earned: productCount > 0 ? 20 * (matched / productCount) : 0,
     note: productCount > 0 ? `${matched}/${productCount}` : '—',
   });
 
-  // Audit qualité (30) — chaque critique −15, chaque mineur −4. Si l'audit n'a
-  // PAS tourné (quota/503), on ne peut PAS certifier la qualité → on n'accorde
-  // pas les pleins points (12/30, "non vérifié"), ce qui empêche un 100 trompeur.
+  // Quality audit (30) — each critical −15, each minor −4. If the audit did
+  // NOT run (quota/503), we CANNOT certify the quality → we don't grant
+  // full points (12/30, "non vérifié"), which prevents a misleading 100.
   parts.push({
     label: 'Audit qualité', max: 30,
     earned: auditRan ? Math.max(0, 30 - 15 * critical - 4 * minor) : 12,
@@ -120,7 +120,7 @@ function computeScore(json) {
       : ((critical || minor) ? `${critical} critique(s), ${minor} mineur(s)` : 'aucun défaut'),
   });
 
-  // Enrichissement IA (10) — sommaire réécrit (5) + enrichissement dispo (5).
+  // AI enrichment (10) — table of contents rewritten (5) + enrichment available (5).
   let ia = 0;
   if (tocEntries > 0) ia += 5;
   if (!authExpired) ia += 5;
@@ -129,15 +129,15 @@ function computeScore(json) {
     note: authExpired ? 'auth Claude expirée' : (tocEntries > 0 ? 'sommaire + specs' : 'specs'),
   });
 
-  // Structure pages (10).
+  // Page structure (10).
   parts.push({
     label: 'Structure pages', max: 10,
     earned: kept >= 2 ? 10 : kept * 5,
     note: `${kept} page(s) conservée(s)`,
   });
 
-  // Pénalités : erreurs moteur (lourdes) + vrais avertissements (perte données,
-  // rendu cassé). Plafonnées pour rester lisibles.
+  // Penalties: engine errors (heavy) + real warnings (data loss,
+  // broken render). Capped to stay readable.
   const errors = (json.orchestratorErrors || []).length;
   const realIssues = countRealIssues(json);
   const penaltyPoints = errors * 30 + Math.min(20, realIssues * 5);
@@ -167,7 +167,7 @@ function buildDiagnostic(json) {
   const matched = json.matchedImageCount ?? 0;
   const items = [];
 
-  // ─── Produits placés ──────────────────────────────────────────────────
+  // ─── Products placed ──────────────────────────────────────────────────
   const used = s.productsUsed ?? 0;
   const remaining = s.productsRemaining ?? 0;
   if (productCount === 0) {
@@ -183,7 +183,7 @@ function buildDiagnostic(json) {
     items.push({ level: 'ok', msg: `${used} / ${productCount} produits placés.` });
   }
 
-  // ─── Images appariées ─────────────────────────────────────────────────
+  // ─── Images matched ───────────────────────────────────────────────────
   if (productCount > 0 && matched < productCount) {
     items.push({ level: 'warn', msg: `${matched} / ${productCount} images appariées.`,
       detail: matched === 0
@@ -193,7 +193,7 @@ function buildDiagnostic(json) {
     items.push({ level: 'ok', msg: `${matched} / ${productCount} images appariées.` });
   }
 
-  // ─── Structure : pages conservées + sommaire (fusionné) ───────────────
+  // ─── Structure: pages kept + table of contents (merged) ───────────────
   const kept = s.pagesKept ?? 0;
   const deleted = s.pagesDeleted ?? 0;
   const tocEntries = s.tocEntriesWritten ?? 0;
@@ -203,7 +203,7 @@ function buildDiagnostic(json) {
       detail: `${deleted} pages template non substituées supprimées.` });
   }
 
-  // ─── Audit qualité Gemini : pages à vérifier (le vrai signal) ─────────
+  // ─── Gemini quality audit: pages to verify (the real signal) ──────────
   const auditIssues = Array.isArray(json.geminiAuditIssues) ? json.geminiAuditIssues : [];
   if (auditIssues.length > 0) {
     const byPage = new Map();
@@ -235,16 +235,16 @@ function buildDiagnostic(json) {
     });
   }
 
-  // ─── IA Gemini : modèles utilisés (+ bascules) ────────────────────────
+  // ─── Gemini AI: models used (+ fallbacks) ─────────────────────────────
   const usage = json.geminiUsage;
   if (usage && usage.totalCalls > 0) {
     const short = (m) => String(m).replace(/^gemini-/, '').replace(/-preview$/, '');
     const detail = usage.byModelDetail || {};
-    // Ordre cascade (meilleur → secours) pour un affichage parlant.
+    // Cascade order (best → fallback) for a meaningful display.
     const CASCADE = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite', 'gemma-4-31b-it'];
     const rank = (m) => { const i = CASCADE.indexOf(m); return i < 0 ? 99 : i; };
     const models = Object.entries(usage.byModel || {}).sort((a, b) => rank(a[0]) - rank(b[0]));
-    // Badge par modèle : ✓ s'il a répondu, ⚠ s'il n'a fait que prendre du quota.
+    // Badge per model: ✓ if it responded, ⚠ if it only consumed quota.
     const badge = (m) => {
       const d = detail[m];
       if (!d) return '';
@@ -256,7 +256,7 @@ function buildDiagnostic(json) {
     const stat = [`${usage.okCalls}/${usage.totalCalls} OK`];
     if (usage.calls429 > 0) stat.push(`${usage.calls429}× quota`);
     if (usage.fallbacks > 0) stat.push(`${usage.fallbacks} bascule(s)`);
-    // État quota PAR modèle (bloc technique) : qui est épuisé vs sain.
+    // Quota state PER model (technical block): which is exhausted vs healthy.
     const perModel = {};
     for (const [m, c] of models) {
       const d = detail[m];
@@ -281,7 +281,7 @@ function buildDiagnostic(json) {
     });
   }
 
-  // ─── Auth Claude expirée (enrichissement réduit) ──────────────────────
+  // ─── Expired Claude auth (reduced enrichment) ─────────────────────────
   if (claudeAuthExpired(json)) {
     items.push({
       level: 'warn',
@@ -291,7 +291,7 @@ function buildDiagnostic(json) {
     });
   }
 
-  // ─── Pipeline (durée, collapsible) ────────────────────────────────────
+  // ─── Pipeline (duration, collapsible) ─────────────────────────────────
   const totalMs = (s.extractMs ?? 0) + (s.classifyMs ?? 0) + (s.allocateMs ?? 0)
     + (s.substituteMs ?? 0) + (s.renderMs ?? 0)
     + (s.specNormalizerMs ?? 0) + (s.valueFormatterMs ?? 0)
@@ -310,7 +310,7 @@ function buildDiagnostic(json) {
     });
   }
 
-  // ─── Erreurs orchestrateur ────────────────────────────────────────────
+  // ─── Orchestrator errors ──────────────────────────────────────────────
   for (const e of json.orchestratorErrors || []) {
     items.push({ level: 'err', msg: 'Erreur moteur V2', detail: e });
   }
@@ -355,8 +355,8 @@ function renderDiagnosticTech(tech) {
   return blocks.join('');
 }
 
-/** Détail du score : 1 ligne par composant (libellé · barre · points · note).
- *  Rend le score lisible et « précis » — on voit d'où viennent les points perdus. */
+/** Score breakdown: 1 row per component (label · bar · points · note).
+ *  Makes the score readable and "precise" — you see where the lost points come from. */
 function renderScoreBreakdown(parts, penalty) {
   const rows = parts.map((p) => {
     const pct = p.max > 0 ? Math.round((100 * p.earned) / p.max) : 0;
@@ -369,7 +369,7 @@ function renderScoreBreakdown(parts, penalty) {
         <span class="score-row-note">${escapeHtml(p.note || '')}</span>
       </div>`;
   }).join('');
-  // Ligne de pénalité (rouge) si des vrais problèmes / erreurs ont retiré des points.
+  // Penalty row (red) if real problems / errors have removed points.
   let penaltyRow = '';
   if (penalty && penalty.points > 0) {
     penaltyRow = `
@@ -450,12 +450,12 @@ previewDelete.addEventListener('click', async () => {
   }
 });
 
-/** Affiche les avertissements remontes par la generation : fichiers rejetes,
- *  warnings de l'adapter (lignes ignorees du CSV/XLSX), warnings du moteur PDF. */
+/** Displays the warnings surfaced by the generation: rejected files,
+ *  adapter warnings (ignored CSV/XLSX rows), PDF engine warnings. */
 function renderWarnings({ rejectedFiles = [], adapterWarnings = [], engineWarnings = [] }) {
-  // On répartit tout en 2 paniers : VRAIS problèmes (perte données / rendu cassé,
-  // qui ont fait baisser le score) vs INFOS techniques (déroulé normal). Un
-  // fichier rejeté est toujours un vrai problème.
+  // We split everything into 2 buckets: REAL problems (data loss / broken render,
+  // which lowered the score) vs technical INFOS (normal flow). A
+  // rejected file is always a real problem.
   const real = [];
   const info = [];
   for (const r of rejectedFiles) real.push(`Fichier rejeté : ${r.name} — ${r.reason}`);
@@ -504,14 +504,14 @@ function renderZone(cat) {
 
 function renderAll() {
   CATEGORIES.forEach(renderZone);
-  // Generate enabled si on a template + data au minimum
+  // Generate enabled if we have template + data at minimum
   const ready = state.template.length > 0 && state.data.length > 0;
   generateBtn.disabled = !ready;
   updateEstimateDisplay(ready);
 }
 
-/** Affichage estimation duree generation (sous le bouton). Honnete : indique
- *  si l'estimation est calibree sur historique ou bornee par defaut. */
+/** Displays the generation duration estimate (below the button). Honest: indicates
+ *  whether the estimate is calibrated on history or bounded by default. */
 let lastEstimateFetch = 0;
 async function updateEstimateDisplay(ready) {
   const el = document.getElementById('genEstimate');
@@ -521,7 +521,7 @@ async function updateEstimateDisplay(ready) {
     el.classList.add('empty');
     return;
   }
-  // Throttle : pas plus d'1 appel toutes les 2s
+  // Throttle: no more than 1 call every 2s
   const now = Date.now();
   if (now - lastEstimateFetch < 2000) return;
   lastEstimateFetch = now;
@@ -601,21 +601,21 @@ resetBtn.addEventListener('click', () => {
   loadHistory();
 });
 
-// Barre de progression : pct = max(temps écoulé / durée moyenne, pct backend).
-// La barre avance CONTINUMENT (chaque tick 100ms = +0.55% en moyenne sur une
-// pipeline de 18s) tout en respectant l'etat backend : si le serveur annonce
-// 70% (phase toc), on saute la (jump en avant). On ne recule JAMAIS. C'est
-// une mesure honnete : "x% du temps moyen ecoule, et au moins x% des phases
-// validees par le serveur". Plafonnee a 99% jusqu'au done=true qui snap a 100.
+// Progress bar: pct = max(elapsed time / average duration, backend pct).
+// The bar advances CONTINUOUSLY (each 100ms tick = +0.55% on average over an
+// 18s pipeline) while respecting the backend state: if the server reports
+// 70% (toc phase), we jump there (forward jump). We NEVER go backward. It's
+// an honest measure: "x% of the average time elapsed, and at least x% of the phases
+// validated by the server". Capped at 99% until done=true, which snaps to 100.
 const genProgress = document.getElementById('genProgress');
 const genProgressFill = genProgress?.querySelector('.gen-progress-fill');
 const genProgressPhase = genProgress?.querySelector('.gen-progress-phase');
 
-// Duree moyenne RECALEE apres optimisation cascade : ~4-5s avec descriptions +
-// audit (quota OK), ~0.7s si quota froid (court-circuit), jusqu'a ~13s sur
-// quota frais (1ers appels lents). 8s = compromis ; la barre ne recule jamais,
-// cap 99%, et `done` snap a 100 (donc une gen rapide finit net, une lente
-// patiente a 99%).
+// Average duration RECALIBRATED after the cascade optimization: ~4-5s with descriptions +
+// audit (quota OK), ~0.7s if quota cold (short-circuit), up to ~13s on
+// fresh quota (first calls slow). 8s = compromise; the bar never goes backward,
+// cap 99%, and `done` snaps to 100 (so a fast gen finishes cleanly, a slow one
+// waits at 99%).
 const ESTIMATED_TOTAL_MS = 8000;
 const POLL_INTERVAL_MS = 400;
 const TICK_INTERVAL_MS = 100;
@@ -640,9 +640,9 @@ function genJobId() {
 function renderBar() {
   if (genProgressFill) genProgressFill.style.width = `${displayedPct.toFixed(1)}%`;
   if (genProgressPhase) {
-    // Dès que la barre plafonne (99%, on a dépassé l'estimation de durée), on
-    // affiche "finalisation…" pour rassurer pendant les étapes longues (audit /
-    // descriptions sur quota frais) avant le snap à 100% du done.
+    // As soon as the bar maxes out (99%, we've exceeded the duration estimate), we
+    // show "finalisation…" to reassure during the long steps (audit /
+    // descriptions on fresh quota) before the snap to 100% of done.
     const tail = displayedPct >= 99 ? ' — finalisation…' : '';
     genProgressPhase.textContent = `${currentLabel}  ${Math.round(displayedPct)}%${tail}`;
   }
@@ -666,8 +666,8 @@ async function pollProgressOnce() {
     const r = await fetch(`/api/progress/${currentJobId}`, { cache: 'no-store' });
     if (!r.ok) {
       consecutive404++;
-      // Backend pas encore pret a tracker : si plus de 2s (5 polls de 400ms)
-      // sans reponse, on change le label pour rassurer plutot que figer.
+      // Backend not ready to track yet: if more than 2s (5 polls of 400ms)
+      // without a response, we change the label to reassure rather than freeze.
       if (consecutive404 >= 5 && currentLabel === 'Préparation en cours…') {
         currentLabel = 'Envoi des fichiers au serveur…';
         renderBar();
@@ -691,7 +691,7 @@ async function pollProgressOnce() {
       }
     }
   } catch {
-    // Reseau intermittent : on laisse passer, prochain tick reessayera.
+    // Intermittent network: we let it pass, the next tick will retry.
   }
 }
 
@@ -725,7 +725,7 @@ function stopGenProgress(success) {
     backendPct = 100;
     currentLabel = 'Terminé';
     renderBar();
-    // Fige l'animation shimmer + pulse pour signaler la fin (cf style.css).
+    // Freeze the shimmer + pulse animation to signal the end (cf. style.css).
     genProgress.classList.add('is-done');
   }
   setTimeout(() => {
@@ -734,14 +734,14 @@ function stopGenProgress(success) {
   }, success ? 600 : 0);
 }
 
-/** Tente d'extraire un message lisible depuis une erreur backend.
- *  Le serveur renvoie typiquement {error: "Echec moteur de substitution: ..."}
- *  ou un crash Python avec stack trace. On strip les paths et lignes pour
- *  garder juste le type + message d'erreur. */
+/** Attempts to extract a readable message from a backend error.
+ *  The server typically returns {error: "Echec moteur de substitution: ..."}
+ *  or a Python crash with a stack trace. We strip the paths and lines to
+ *  keep just the type + error message. */
 function humanizeError(raw) {
   if (!raw) return 'Erreur inconnue';
   let msg = String(raw);
-  // Strip paths Python (/app/python/substitute.py:1234)
+  // Strip Python paths (/app/python/substitute.py:1234)
   msg = msg.replace(/\/[^\s]+\.py:\d+/g, '');
   // Strip "Traceback (most recent call last):" + lines
   msg = msg.replace(/Traceback[\s\S]*?(?=\w+Error:|\w+Exception:|$)/g, '');
@@ -770,16 +770,16 @@ generateBtn.addEventListener('click', async () => {
     const fetchTimeout = setTimeout(() => abortCtrl.abort(), 10 * 60 * 1000); // 10 min max
     const res = await fetch(`/api/generate?jobId=${encodeURIComponent(clientJobId)}`, { method: 'POST', body: fd, signal: abortCtrl.signal });
     clearTimeout(fetchTimeout);
-    // On parse toujours le JSON (succes ET echec) : sur erreur le backend
-    // peut renvoyer des warnings / diagnostic partiels utiles a afficher.
+    // We always parse the JSON (success AND failure): on error the backend
+    // may return partial warnings / diagnostic that are useful to display.
     let json = {};
-    try { json = await res.json(); } catch { /* reponse non-JSON */ }
+    try { json = await res.json(); } catch { /* non-JSON response */ }
     if (!res.ok) {
       stopGenProgress(false);
       setStatus(`Échec de la génération : ${humanizeError(json.error) || `HTTP ${res.status}`}`, 'error');
-      // Affiche ce qu'on a quand meme : fichiers rejetes, warnings adapter
-      // (lecture xlsx), warnings/erreurs orchestrator. Le user comprend
-      // OU ça a coince au lieu de juste voir un message rouge.
+      // Display what we have anyway: rejected files, adapter warnings
+      // (xlsx reading), orchestrator warnings/errors. The user understands
+      // WHERE it got stuck instead of just seeing a red message.
       renderWarnings({
         rejectedFiles: json.rejectedFiles || [],
         adapterWarnings: json.adapterWarnings || [],
@@ -788,8 +788,8 @@ generateBtn.addEventListener('click', async () => {
           ...(json.orchestratorErrors || []),
         ],
       });
-      // Diagnostic partiel : si on a au moins productCount/matchedImageCount,
-      // on peut afficher le score et les items meme sans PDF.
+      // Partial diagnostic: if we have at least productCount/matchedImageCount,
+      // we can display the score and items even without a PDF.
       if (json.stats || json.productCount !== undefined) {
         renderDiagnostic({
           stats: json.stats || {},
@@ -801,9 +801,9 @@ generateBtn.addEventListener('click', async () => {
       return;
     }
     const s = json.stats || {};
-    // Duree REELLE mesuree cote client (du POST jusqu'a la reponse). Plus
-    // fiable que la somme des Ms du backend qui n'inclut pas toutes les
-    // phases (ex: descriptions Claude, upload, parse).
+    // REAL duration measured client-side (from the POST until the response). More
+    // reliable than the sum of the backend Ms which doesn't include all the
+    // phases (e.g. Claude descriptions, upload, parse).
     const elapsedMs = startedAt ? Date.now() - startedAt : 0;
     const durationSec = (elapsedMs / 1000).toFixed(1);
     stopGenProgress(true);
@@ -828,9 +828,9 @@ generateBtn.addEventListener('click', async () => {
   }
 });
 
-// ─── Épinglage (localStorage) ──────────────────────────────────
-// Les catalogues epingles sont toujours en tete de l'historique et exempts
-// du collapse. Persistance cote client uniquement (pas de backend).
+// ─── Pinning (localStorage) ──────────────────────────────────
+// Pinned catalogs are always at the top of the history and exempt
+// from the collapse. Client-side persistence only (no backend).
 const PINNED_KEY = 'pinnedCatalogs';
 const pinnedSet = new Set((() => {
   try { return JSON.parse(localStorage.getItem(PINNED_KEY) || '[]'); }
@@ -881,8 +881,8 @@ async function loadHistory() {
     }
     historyEl.classList.remove('hidden');
 
-    // Epingles toujours en tete et toujours visibles ; le collapse ne s'applique
-    // qu'au reste (au-dela de HISTORY_VISIBLE_REST).
+    // Pinned ones always at the top and always visible; the collapse only applies
+    // to the rest (beyond HISTORY_VISIBLE_REST).
     const pinned = items.filter((it) => pinnedSet.has(it.pdfName));
     const rest = items.filter((it) => !pinnedSet.has(it.pdfName));
     const restVisible = rest.slice(0, HISTORY_VISIBLE_REST);
@@ -915,7 +915,7 @@ async function loadHistory() {
   }
 }
 
-// Delegation : un seul listener pour pin / del / clear / toggle.
+// Delegation: a single listener for pin / del / clear / toggle.
 historyEl.addEventListener('click', async (e) => {
   const pinBtn = e.target.closest('.history-pin');
   if (pinBtn) {
@@ -942,9 +942,9 @@ historyEl.addEventListener('click', async (e) => {
     return;
   }
   if (e.target.closest('#histClear')) {
-    // Recupere la liste reelle pour calculer les comptes exacts (le pinnedSet
-    // peut contenir des entries obsoletes pointant sur des catalogues deja
-    // supprimes — on en profite pour nettoyer).
+    // Retrieves the real list to compute the exact counts (the pinnedSet
+    // may contain stale entries pointing to already-deleted catalogs — we
+    // take the opportunity to clean up).
     const list = await fetch('/api/history').then((r) => r.json()).catch(() => ({ items: [] }));
     const items = list.items || [];
     const existing = new Set(items.map((it) => it.pdfName));

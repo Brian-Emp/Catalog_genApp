@@ -21,17 +21,17 @@ const num = (v: string | undefined, def: number): number => {
 
 export function buildApp(): express.Express {
   const app = express();
-  // SÉCURITÉ : ne PAS faire confiance à X-Forwarded-For par défaut. `true`
-  // laisserait n'importe quel client usurper req.ip via l'en-tête → bypass
-  // total du rate-limit (un bucket neuf par IP forgée). Par défaut false →
-  // req.ip = IP socket réelle (non spoofable). Derrière un reverse-proxy de
-  // confiance UNIQUEMENT : TRUST_PROXY = nb de hops ("1") ou IP/CIDR du proxy.
+  // SECURITY: do NOT trust X-Forwarded-For by default. `true` would let any
+  // client spoof req.ip via the header → full rate-limit bypass (a fresh
+  // bucket per forged IP). Defaults to false → req.ip = the real socket IP
+  // (non-spoofable). ONLY behind a trusted reverse proxy: TRUST_PROXY = number
+  // of hops ("1") or the proxy's IP/CIDR.
   const tp = process.env.TRUST_PROXY;
   app.set('trust proxy', tp ? (/^\d+$/.test(tp) ? Number(tp) : tp) : false);
 
-  // Security headers (CSP, anti-clickjacking, nosniff, …). CSP volontairement
-  // serrée : script same-origin, preview PDF en iframe same-origin, pas
-  // d'inline <script>. `upgrade-insecure-requests` retiré (l'app tourne en
+  // Security headers (CSP, anti-clickjacking, nosniff, …). CSP deliberately
+  // tight: same-origin scripts, PDF preview in a same-origin iframe, no inline
+  // <script>. `upgrade-insecure-requests` removed (the app runs on
   // http://localhost).
   app.use(
     helmet({
@@ -51,13 +51,13 @@ export function buildApp(): express.Express {
           upgradeInsecureRequests: null,
         },
       },
-      // PDFs servis same-origin : CORP same-origin OK, COEP laissé off.
+      // PDFs served same-origin: same-origin CORP is fine, COEP left off.
       crossOriginEmbedderPolicy: false,
     }),
   );
 
-  // Rate-limit général sur /api (filet anti-flood). Exempte le probe de santé
-  // et le polling de progression (haute fréquence légitime).
+  // General rate limit on /api (anti-flood safety net). Exempts the health
+  // probe and progress polling (legitimately high-frequency).
   app.use(
     '/api',
     makeRateLimiter({
@@ -66,7 +66,7 @@ export function buildApp(): express.Express {
       skip: (req) => req.path === '/health' || req.path.startsWith('/progress'),
     }),
   );
-  // Génération : coûteuse → limite stricte (existant).
+  // Generation: costly → strict limit (existing).
   app.use(
     '/api/generate',
     makeRateLimiter({
@@ -75,7 +75,7 @@ export function buildApp(): express.Express {
       message: 'Trop de requêtes. Réessayez dans 1 minute.',
     }),
   );
-  // Smoke Gemini : déclenche de vrais appels API (quota/argent) → très strict.
+  // Gemini smoke test: triggers real API calls (quota/money) → very strict.
   app.use(
     '/api/gemini/smoke',
     makeRateLimiter({
@@ -84,8 +84,8 @@ export function buildApp(): express.Express {
       message: 'Smoke Gemini : trop de requêtes. Réessayez plus tard.',
     }),
   );
-  // Layout expérimental : Gemini Pro par page (~30-45s/page, très coûteux) →
-  // limite stricte (l'auth est posée sur la route elle-même).
+  // Experimental layout: Gemini Pro per page (~30-45s/page, very costly) →
+  // strict limit (auth is enforced on the route itself).
   app.use(
     '/api/layout',
     makeRateLimiter({
@@ -98,7 +98,7 @@ export function buildApp(): express.Express {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.static(path.resolve('public')));
 
-  // PDFs proteges par token HMAC (evite brute-force sur le stamp).
+  // PDFs protected by an HMAC token (prevents brute-forcing the stamp).
   app.get('/generated/:file', verifyDownloadToken, (req, res) => {
     const filePath = path.resolve('generated', path.basename(req.params.file));
     res.sendFile(filePath, (err) => {
@@ -114,10 +114,10 @@ export function buildApp(): express.Express {
     res.json({ ok: true });
   });
 
-  // Error handler terminal : sans lui, une erreur multer (fichier trop gros,
-  // trop de fichiers/champs) ou toute erreur framework tombe sur le handler
-  // par défaut d'Express → 500 + STACK TRACE en clair (hors prod). Ici :
-  // MulterError → 4xx propre, sinon 500 générique (détail masqué en prod).
+  // Terminal error handler: without it, a multer error (file too large, too
+  // many files/fields) or any framework error falls through to Express's
+  // default handler → 500 + STACK TRACE in clear text (outside prod). Here:
+  // MulterError → clean 4xx, otherwise a generic 500 (detail hidden in prod).
   app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (res.headersSent) {
       next(err);

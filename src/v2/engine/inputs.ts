@@ -1,22 +1,22 @@
 /**
- * Phase 0 : analyse des produits en entree (xlsx parse).
+ * Phase 0: analysis of the input products (xlsx parse).
  *
- * Compte les produits par section, donne les stats utiles a l'allocator
- * (Phase 2) pour decider combien de pages produit garder. La section est
- * normalisee (lowercase + sans accents) pour matcher robustement le label
- * des section_banner du template.
+ * Counts products by section, provides the stats the allocator (Phase 2)
+ * needs to decide how many product pages to keep. The section is normalized
+ * (lowercase + accent-free) to robustly match the template section_banner
+ * label.
  */
 
 import type { PlanProduct } from '../types';
 
 export interface ProductsAnalysis {
-  /** Map section_normalisee → produits dans l'ordre de l'input. */
+  /** Map normalized_section → products in input order. */
   bySection: Map<string, PlanProduct[]>;
-  /** Label "humain" original par section_normalisee (la 1re occurrence). */
+  /** Original "human" label per normalized_section (first occurrence). */
   sectionLabels: Map<string, string>;
-  /** Total produits, tous sections confondues. */
+  /** Total products, across all sections. */
   total: number;
-  /** Nombre de sections distinctes (incl '' = non-assignees). */
+  /** Number of distinct sections (incl '' = unassigned). */
   sectionCount: number;
 }
 
@@ -43,9 +43,9 @@ export function analyzeProducts(products: PlanProduct[]): ProductsAnalysis {
 
 import { transliterate } from './textNormalize';
 
-/** Normalisation pour matcher product.section <-> section_banner detecte.
- *  Pipeline : transliterate (chars non-NFD : ß/ø/þ/ł) → NFKD + strip
- *  diacritiques → lowercase → strip non-alphanum → trim. */
+/** Normalization to match product.section <-> detected section_banner.
+ *  Pipeline: transliterate (non-NFD chars: ß/ø/þ/ł) → NFKD + strip
+ *  diacritics → lowercase → strip non-alphanum → trim. */
 export function normalizeSection(s: string): string {
   return transliterate(s)
     .normalize('NFKD')

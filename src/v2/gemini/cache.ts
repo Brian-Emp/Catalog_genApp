@@ -1,14 +1,14 @@
 /**
- * Cache simple pour les audits Gemini (visualAudit, coherenceAudit).
+ * Simple cache for Gemini audits (visualAudit, coherenceAudit).
  *
- * Clé : sha256(prompt + image_bytes joined). Évite de ré-auditer la même
- * page avec le même prompt → économise quota daily Gemini sur les re-runs
- * de pipeline (tests E2E répétés, debug visuel, etc.).
+ * Key: sha256(prompt + image_bytes joined). Avoids re-auditing the same
+ * page with the same prompt → saves daily Gemini quota on pipeline re-runs
+ * (repeated E2E tests, visual debugging, etc.).
  *
- * Storage : fichier JSON dans `<projectDir>/.gemini-cache/audits.json`.
- * Volontairement primitif (pas de lock, pas de TTL) : ce cache est best-effort.
- * Sur conflit d'écriture concurrent → last-writer-wins (toléré, c'est juste
- * un cache).
+ * Storage: JSON file at `<projectDir>/.gemini-cache/audits.json`.
+ * Deliberately primitive (no lock, no TTL): this cache is best-effort.
+ * On concurrent write conflict → last-writer-wins (tolerated, it's just
+ * a cache).
  */
 
 import { promises as fs } from 'fs';
@@ -18,13 +18,13 @@ import path from 'path';
 const CACHE_DIR = '.gemini-cache';
 const CACHE_FILE = 'audits.json';
 const CACHE_VERSION = 1;
-/** TTL soft : entries plus vieilles que 30 jours sont purgées au load. */
+/** Soft TTL: entries older than 30 days are purged on load. */
 const MAX_AGE_MS = 30 * 24 * 3600 * 1000;
 
 interface CacheEntry {
-  /** Timestamp d'ecriture (epoch ms). */
+  /** Write timestamp (epoch ms). */
   t: number;
-  /** Valeur JSON-serialisable mise en cache. */
+  /** JSON-serializable value stored in cache. */
   v: unknown;
 }
 
@@ -37,9 +37,9 @@ let memCache: CacheFile | null = null;
 let cachePath: string | null = null;
 
 /**
- * Compute une clé stable pour un audit : sha256(prompt + image_bytes...).
- * Les images sont concatenees dans l'ordre fourni (l'ordre compte pour la
- * coherence audit qui voit les pages en sequence).
+ * Computes a stable key for an audit: sha256(prompt + image_bytes...).
+ * Images are concatenated in the order provided (order matters for the
+ * coherence audit, which sees pages in sequence).
  */
 export function computeCacheKey(prompt: string, imageBytes: Buffer[] = []): string {
   const h = createHash('sha256');
@@ -49,8 +49,8 @@ export function computeCacheKey(prompt: string, imageBytes: Buffer[] = []): stri
 }
 
 /**
- * Initialise le chemin du cache (relatif a un projectDir). Idempotent.
- * Si pas appele : cache desactive (get/set sont no-op).
+ * Initializes the cache path (relative to a projectDir). Idempotent.
+ * If not called: cache disabled (get/set are no-ops).
  */
 export async function initCache(projectDir: string): Promise<void> {
   if (cachePath) return;
@@ -59,16 +59,16 @@ export async function initCache(projectDir: string): Promise<void> {
   try {
     await fs.mkdir(dir, { recursive: true });
   } catch {
-    // dir existe deja ou impossible a creer (read-only fs) → cache disabled
+    // dir already exists or cannot be created (read-only fs) → cache disabled
     cachePath = null;
     return;
   }
-  // Load existing cache (si fichier present)
+  // Load existing cache (if file present)
   try {
     const raw = await fs.readFile(cachePath, 'utf8');
     const parsed = JSON.parse(raw) as CacheFile;
     if (parsed.version === CACHE_VERSION && parsed.entries) {
-      // Purge soft TTL
+      // Purge soft TTL entries
       const now = Date.now();
       for (const [k, e] of Object.entries(parsed.entries)) {
         if (!e || typeof e.t !== 'number' || now - e.t > MAX_AGE_MS) {
@@ -80,13 +80,13 @@ export async function initCache(projectDir: string): Promise<void> {
       memCache = { version: CACHE_VERSION, entries: {} };
     }
   } catch {
-    // Fichier absent ou corrompu : on repart d'un cache vide
+    // File missing or corrupted: start from an empty cache
     memCache = { version: CACHE_VERSION, entries: {} };
   }
 }
 
 /**
- * Get cached value pour une cle. Retourne undefined si absent ou cache disabled.
+ * Gets the cached value for a key. Returns undefined if absent or cache disabled.
  */
 export function cacheGet<T>(key: string): T | undefined {
   if (!memCache) return undefined;
@@ -96,12 +96,12 @@ export function cacheGet<T>(key: string): T | undefined {
 }
 
 /**
- * Set cached value + flush asynchrone du fichier. Best-effort.
+ * Sets the cached value + asynchronous flush to file. Best-effort.
  */
 export async function cacheSet(key: string, value: unknown): Promise<void> {
   if (!memCache || !cachePath) return;
   memCache.entries[key] = { t: Date.now(), v: value };
-  // Flush asynchrone, ignore les erreurs (cache best-effort)
+  // Asynchronous flush, ignore errors (cache is best-effort)
   try {
     await fs.writeFile(cachePath, JSON.stringify(memCache), 'utf8');
   } catch {
@@ -109,7 +109,7 @@ export async function cacheSet(key: string, value: unknown): Promise<void> {
   }
 }
 
-/** Reset le cache en memoire ET sur disque. Tests / commande explicite. */
+/** Resets the cache in memory AND on disk. Tests / explicit command. */
 export async function clearCache(): Promise<void> {
   memCache = { version: CACHE_VERSION, entries: {} };
   if (cachePath) {
@@ -117,7 +117,7 @@ export async function clearCache(): Promise<void> {
   }
 }
 
-/** Stats du cache : nb entries + age min/max. Utile pour debug. */
+/** Cache stats: entry count + min/max age. Useful for debugging. */
 export function cacheStats(): { entries: number; oldestMs: number | null; newestMs: number | null } {
   if (!memCache || Object.keys(memCache.entries).length === 0) {
     return { entries: 0, oldestMs: null, newestMs: null };
@@ -130,7 +130,7 @@ export function cacheStats(): { entries: number; oldestMs: number | null; newest
   };
 }
 
-/** Reset le path du cache (utile pour les tests isoles). */
+/** Resets the cache path (useful for isolated tests). */
 export function resetCacheForTests(): void {
   memCache = null;
   cachePath = null;

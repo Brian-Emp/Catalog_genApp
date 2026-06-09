@@ -1,54 +1,54 @@
 /**
- * PageSchema — approche B : vue STRUCTUREE d'une page extraite, avec
- * zones nommees (title, image_main, specs_block, page_number...) au lieu
- * de raw_spans + bbox bruts.
+ * PageSchema — approach B: a STRUCTURED view of an extracted page, with
+ * named zones (title, image_main, specs_block, page_number...) instead of
+ * raw raw_spans + bbox.
  *
- * Sert deux usages :
- *  1. Donner a Claude une representation lisible/raisonnable d'une page
- *     (au lieu de balancer 200 spans avec bbox).
- *  2. Resolver des "targets" lisibles (ex "page_3.title") en bbox
- *     concrets pour generer les ops bas niveau.
+ * Serves two purposes:
+ *  1. Give Claude a readable/reasonable representation of a page (instead of
+ *     dumping 200 spans with bbox).
+ *  2. Resolve readable "targets" (e.g. "page_3.title") into concrete bbox to
+ *     generate the low-level ops.
  */
 import type { Bbox, ColorHex } from '../types';
 
-/** Style typographique d'une zone texte (repris du template, sert au
- *  resolver pour reproduire le bon font/taille/couleur). */
+/** Typographic style of a text zone (taken from the template, used by the
+ *  resolver to reproduce the right font/size/color). */
 export interface ZoneStyle {
   font: string;
   size: number;
   color: ColorHex;
 }
 
-/** Une zone texte simple (titre, numero de page, label banner, etc.). */
+/** A simple text zone (title, page number, banner label, etc.). */
 export interface TextZone {
-  /** Contenu actuel (template) — utile a Claude pour comprendre la nature. */
+  /** Current content (template) — helps Claude understand the nature. */
   text: string;
   bbox: Bbox;
   style: ZoneStyle;
 }
 
-/** Zone image (image principale produit, vignette variante, photo lifestyle). */
+/** Image zone (main product image, variant swatch, lifestyle photo). */
 export interface ImageZone {
   bbox: Bbox;
-  /** ID image extrait du PDF (cf raw_images), si pertinent. */
+  /** Image ID extracted from the PDF (cf raw_images), if relevant. */
   imageId?: string;
 }
 
-/** Bloc de specifications (key : value). Chaque item a sa propre bbox pour
- *  pouvoir cibler `specs_block.item_2.value` precisement. */
+/** Specifications block (key : value). Each item has its own bbox so we can
+ *  target `specs_block.item_2.value` precisely. */
 export interface SpecsItem {
   key: TextZone;
   value: TextZone;
 }
 
 export interface SpecsBlockZone {
-  /** Bbox globale du bloc specs (utile pour layout et erase). */
+  /** Global bbox of the specs block (useful for layout and erase). */
   bbox: Bbox;
   items: SpecsItem[];
 }
 
-/** Zones d'UN bloc produit (cas multi-produits par page : 1 ProductBlockZone
- *  par bloc detecte). Les targets s'ecrivent `page_N.product_K.title`. */
+/** Zones of ONE product block (multi-product-per-page case: 1 ProductBlockZone
+ *  per detected block). Targets are written `page_N.product_K.title`. */
 export interface ProductBlockZone {
   title?: TextZone;
   reference?: TextZone;
@@ -58,13 +58,13 @@ export interface ProductBlockZone {
   variants?: { bbox: Bbox; images: ImageZone[]; labels: TextZone[] };
 }
 
-/** Schema complet d'une page produit. Champs optionnels : toutes les pages
- *  n'ont pas un title / image_main / specs (ex pages identite marque).
+/** Complete schema of a product page. Optional fields: not every page has a
+ *  title / image_main / specs (e.g. brand identity pages).
  *
- *  Rétro-compat : `title`, `reference`, `color`, `image_main`, `specs_block`,
- *  `variants` au niveau zones reflètent le 1er produit (= `products[0]`).
- *  Le tableau `products` est la SOURCE DE VERITE pour les pages multi-blocs ;
- *  les targets historiques `page_N.title` restent valides et pointent product[0].
+ *  Backward-compat: `title`, `reference`, `color`, `image_main`, `specs_block`,
+ *  `variants` at the zones level reflect the 1st product (= `products[0]`).
+ *  The `products` array is the SOURCE OF TRUTH for multi-block pages; the
+ *  legacy targets `page_N.title` stay valid and point to product[0].
  */
 export interface PageSchema {
   sourcePage: number;
@@ -79,28 +79,28 @@ export interface PageSchema {
     variants?: { bbox: Bbox; images: ImageZone[]; labels: TextZone[] };
     page_number?: TextZone;
     section_banner?: TextZone;
-    /** Liste de TOUS les blocs produit detectes sur la page (>= 1). */
+    /** List of ALL product blocks detected on the page (>= 1). */
     products?: ProductBlockZone[];
   };
 }
 
-/** Type des selecteurs targets compris par le resolver.
- *  Format : `page_<N>.[product_<K>.]<zone>[.<sub>[.item_<i>][.key|value]]`
+/** Type of the target selectors understood by the resolver.
+ *  Format: `page_<N>.[product_<K>.]<zone>[.<sub>[.item_<i>][.key|value]]`
  *
- *  Exemples :
+ *  Examples:
  *    page_3.title                                 (legacy = product_0.title)
- *    page_3.product_0.title                       (explicite)
- *    page_3.product_2.specs_block.item_1.value    (multi-produits)
+ *    page_3.product_0.title                       (explicit)
+ *    page_3.product_2.specs_block.item_1.value    (multi-product)
  *    page_3.image_main                            (legacy = product_0.image_main)
- *    page_3.page_number                           (toujours niveau page)
- *    page_3.section_banner                        (toujours niveau page)
+ *    page_3.page_number                           (always page-level)
+ *    page_3.section_banner                        (always page-level)
  */
 export type TargetSelector = string;
 
-/** Resultat d'une resolution de target → bbox + style. */
+/** Result of a target resolution → bbox + style. */
 export interface ResolvedTarget {
   bbox: Bbox;
   style?: ZoneStyle;
-  /** True si la cible est une zone texte (vs image). */
+  /** True if the target is a text zone (vs image). */
   isText: boolean;
 }

@@ -1,17 +1,17 @@
 /**
- * Smart mapping XLSX → produits via Gemini (alternative à Claude CLI).
+ * Smart XLSX → products mapping via Gemini (alternative to the Claude CLI).
  *
- * Reçoit : headers XLSX + qq lignes d'exemple + mapping heuristique (avec
- * trous éventuels).
- * Retourne : mapping complet { name, sku, color, image, section, family }.
+ * Receives: XLSX headers + a few example rows + heuristic mapping (with
+ * possible gaps).
+ * Returns: complete mapping { name, sku, color, image, section, family }.
  *
- * Avantages vs Claude CLI :
- *  - Gratuit free tier (Gemini Flash 15 RPM / 1500 RPD)
- *  - Pas d'expiration auth (clé API stable)
- *  - Plus rapide (HTTP direct vs spawn CLI)
- *  - Context 1M tokens = peut analyser des XLSX larges en une passe
+ * Advantages vs the Claude CLI:
+ *  - Free tier (Gemini Flash 15 RPM / 1500 RPD)
+ *  - No auth expiration (stable API key)
+ *  - Faster (direct HTTP vs CLI spawn)
+ *  - 1M-token context = can analyze large XLSX files in a single pass
  *
- * Contract identique a claudeColumnMap : même types I/O pour swap drop-in.
+ * Contract identical to claudeColumnMap: same I/O types for a drop-in swap.
  */
 
 import { isGeminiAvailable } from './client';
@@ -22,18 +22,18 @@ import type { ClaudeColumnMapping } from '../../services/claudeColumnMapper';
 export interface GeminiMappingOptions {
   headers: string[];
   sampleRows: Record<string, string>[];
-  /** Pre-detection heuristique : Gemini complète les trous. */
+  /** Heuristic pre-detection: Gemini fills in the gaps. */
   heuristic?: Partial<ClaudeColumnMapping>;
-  /** Si false : retourne null sans appel Gemini. Default true. */
+  /** If false: returns null without calling Gemini. Default true. */
   enabled?: boolean;
 }
 
 export interface GeminiMappingResult {
-  /** Mapping fusionne (heuristique + Gemini pour les champs manquants). */
+  /** Merged mapping (heuristic + Gemini for the missing fields). */
   mapping: ClaudeColumnMapping | null;
   ran: boolean;
   durationMs: number;
-  /** Cout estime (USD). Optionnel : Gemini free tier = 0. */
+  /** Estimated cost (USD). Optional: Gemini free tier = 0. */
   costUsd?: number;
   notes: string[];
 }
@@ -57,7 +57,7 @@ export async function geminiColumnMap(
     return { mapping: null, ran: false, durationMs: Date.now() - t0, notes: ['GEMINI_KEY absente'] };
   }
 
-  // Cap : si trop de headers, on tronque (sample des 100 premiers).
+  // Cap: if too many headers, we truncate (sample of the first 100).
   const headers = opts.headers.slice(0, MAX_HEADERS_FOR_PROMPT);
   const sampleRows = (opts.sampleRows ?? []).slice(0, MAX_SAMPLE_ROWS);
   const heuristic: ClaudeColumnMapping = {
@@ -70,12 +70,12 @@ export async function geminiColumnMap(
   };
 
   const prompt = buildPrompt(headers, sampleRows, heuristic);
-  // pref 'speed' : mapping = sortie JSON courte, l'API flash-lite (1-3s) est
-  // ideale. Fallback CLI Gemini Pro si l'API est en quota (resilience).
+  // pref 'speed': mapping = short JSON output, the flash-lite API (1-3s) is
+  // ideal. Fallback to the Gemini Pro CLI if the API is over quota (resilience).
   const res = await routedGenerateText({
     prompt,
     pref: 'speed',
-    temperature: 0.1, // strict pour mapping
+    temperature: 0.1, // strict for mapping
     maxOutputTokens: 1024,
     module: 'smartMapping',
   });
@@ -90,13 +90,13 @@ export async function geminiColumnMap(
     return { mapping: null, ran: true, durationMs: Date.now() - t0, notes };
   }
 
-  // Fusion : Gemini ne peut OVERRIDE l'heuristique. Il ne remplit que les
-  // trous (champs null). On valide aussi que chaque mapped column existe
-  // bien dans headers (Gemini hallucine parfois des noms).
+  // Merge: Gemini cannot OVERRIDE the heuristic. It only fills the gaps
+  // (null fields). We also validate that each mapped column actually exists
+  // in headers (Gemini sometimes hallucinates names).
   const headerSet = new Set(headers);
   const mapping: ClaudeColumnMapping = { ...heuristic };
   for (const key of ['name', 'sku', 'color', 'image', 'section', 'family'] as const) {
-    if (mapping[key]) continue; // garde la valeur heuristique
+    if (mapping[key]) continue; // keep the heuristic value
     const candidate = parsed[key];
     if (candidate && headerSet.has(candidate)) {
       mapping[key] = candidate;

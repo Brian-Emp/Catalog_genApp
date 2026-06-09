@@ -1,13 +1,13 @@
 /**
- * Audit visuel via Gemini Vision (alternative à Claude CLI).
+ * Visual audit via Gemini Vision (alternative to the Claude CLI).
  *
- * Avantage vs Claude :
- *  - Auth par cle fixe (pas d'expiration toutes les 6h)
- *  - Plus rapide (pas de spawn CLI ; appel HTTP direct)
- *  - Gratuit tier free pour text/vision (vs Claude paid)
+ * Advantage vs Claude:
+ *  - Auth via a fixed key (no expiration every 6h)
+ *  - Faster (no CLI spawn; direct HTTP call)
+ *  - Free tier for text/vision (vs Claude paid)
  *
- * Meme contract de sortie que visualAudit(claude) : VisualAuditResult avec
- * issues[]. L'orchestrator peut switcher provider via une option.
+ * Same output contract as visualAudit(claude): VisualAuditResult with
+ * issues[]. The orchestrator can switch provider via an option.
  */
 
 import { promises as fs } from 'fs';
@@ -27,15 +27,15 @@ export interface VisualAuditGeminiOptions {
   plan: Plan;
   allocations: PageAllocation[];
   workDir: string;
-  /** Nombre de pages a echantillonner. 'all' = toutes. Default 6. */
+  /** Number of pages to sample. 'all' = all. Default 6. */
   sampleSize?: number | 'all';
-  /** Active l'audit. Default true. */
+  /** Enables the audit. Default true. */
   enabled?: boolean;
-  /** Modele Gemini. Default flash (rapide + gratuit). */
+  /** Gemini model. Default flash (fast + free). */
   model?: string;
-  /** Repertoire projet ou` stocker le cache `.gemini-cache/`. Si fourni :
-   *  les pages deja auditees avec le meme prompt+image sont retournees du
-   *  cache (evite de consommer le quota daily Gemini sur les re-runs). */
+  /** Project directory where the `.gemini-cache/` cache is stored. If provided:
+   *  pages already audited with the same prompt+image are returned from the
+   *  cache (avoids consuming the daily Gemini quota on re-runs). */
   projectDir?: string;
 }
 
@@ -51,9 +51,9 @@ export async function visualAuditGemini(
   if (!(await isGeminiAvailable())) {
     return { ran: false, issues: [], sampledPages: [], durationMs: Date.now() - t0, notes: ['GEMINI_KEY absente — audit skip'] };
   }
-  // Court-circuit quota-mort : si une cascade Gemini a tout echoue tres
-  // recemment, l'audit echouerait aussi → on skip AVANT de rasteriser les pages
-  // (operation couteuse). La generation reste rapide (quasi-deterministe).
+  // Dead-quota short-circuit: if a Gemini cascade failed entirely very
+  // recently, the audit would fail too → we skip BEFORE rasterizing the pages
+  // (expensive operation). Generation stays fast (quasi-deterministic).
   if (isQuotaCold()) {
     return { ran: false, issues: [], sampledPages: [], durationMs: Date.now() - t0, notes: ['quota Gemini froid — audit visuel court-circuite (retest auto)'] };
   }
@@ -72,7 +72,7 @@ export async function visualAuditGemini(
   const sampleSize = opts.sampleSize ?? DEFAULT_SAMPLE_SIZE;
   const sampled = sampleSize === 'all' ? finalPages : pickSample(finalPages, sampleSize);
 
-  // Rasterise les pages echantillonnees (reutilise renderPagePng de visualAudit)
+  // Rasterize the sampled pages (reuses renderPagePng from visualAudit)
   const auditDir = path.join(opts.workDir, 'audit-images-gemini');
   await fs.mkdir(auditDir, { recursive: true });
   const rendered: { finalNum: number; sourcePage: number; pngPath: string }[] = [];
@@ -93,7 +93,7 @@ export async function visualAuditGemini(
   const allocByPage = new Map(opts.allocations.map((a) => [a.sourcePage, a]));
   const notes: string[] = [];
 
-  // Lecture des PNG rasterises.
+  // Read the rasterized PNGs.
   const images: { finalNum: number; sourcePage: number; bytes: Buffer }[] = [];
   for (const r of rendered) {
     try {
@@ -106,9 +106,9 @@ export async function visualAuditGemini(
     return { ran: false, issues: [], sampledPages: [], durationMs: Date.now() - t0, notes: [...notes, 'aucune image lisible'] };
   }
 
-  // UN SEUL appel Gemini Vision multi-image (vs 1 appel/page) : ~Npages× moins
-  // de quota consomme + plus rapide. Le prompt porte le contexte (produits
-  // attendus) PAR PAGE ; la reponse attribue chaque issue a son numero de page.
+  // A SINGLE multi-image Gemini Vision call (vs 1 call/page): ~Npages× less
+  // quota consumed + faster. The prompt carries the context (expected products)
+  // PER PAGE; the response attributes each issue to its page number.
   const descriptors = images.map((im) => ({
     finalNum: im.finalNum,
     sourcePage: im.sourcePage,
@@ -121,8 +121,8 @@ export async function visualAuditGemini(
   }));
   const prompt = buildBatchPrompt(descriptors);
 
-  // Cache batch-level (sha du prompt + toutes les images). Re-run identique → hit
-  // → 0 appel Gemini (economise le quota daily).
+  // Batch-level cache (sha of the prompt + all images). Identical re-run → hit
+  // → 0 Gemini calls (saves the daily quota).
   if (opts.projectDir) await initCache(opts.projectDir);
   const cacheKey = opts.projectDir ? computeCacheKey(prompt, images.map((i) => i.bytes)) : null;
   if (cacheKey) {
@@ -136,8 +136,8 @@ export async function visualAuditGemini(
   const res = await analyzeMultiImage({
     prompt,
     images: images.map((im) => ({ bytes: im.bytes, mimeType: 'image/png', label: `Page ${im.finalNum} :` })),
-    // Cascade vision (flash → 2.0-flash → flash-lite → 2.0-flash-lite) geree
-    // dans analyzeMultiImage : on bascule de modele sur quota epuise.
+    // Vision cascade (flash → 2.0-flash → flash-lite → 2.0-flash-lite) handled
+    // in analyzeMultiImage: we switch model on exhausted quota.
     model: opts.model ?? GEMINI_MODELS.flash,
     fallbackModel: GEMINI_MODELS.flashLite,
     module: 'visualAudit',
@@ -182,9 +182,9 @@ interface ExpectedProduct {
 function buildBatchPrompt(
   pages: { finalNum: number; sourcePage: number; expectedProducts: ExpectedProduct[] }[],
 ): string {
-  // Un seul prompt pour TOUTES les pages. Chaque page declare son type
-  // (contexte vs produit) + les produits attendus. La reponse attribue chaque
-  // issue a son numero de page via le champ "page".
+  // A single prompt for ALL pages. Each page declares its type
+  // (context vs product) + the expected products. The response attributes each
+  // issue to its page number via the "page" field.
   const pageBlocks = pages
     .map((p) => {
       if (p.expectedProducts.length === 0) {
@@ -254,9 +254,9 @@ function normalizeIssue(
   const category = validCategories.includes(o.category as typeof validCategories[number])
     ? (o.category as VisualAuditIssue['category'])
     : 'other';
-  // Attribution a la page : la reponse batch indique le numero final dans "page".
-  // Si le modele renvoie un numero inconnu/absent (hallucination, oubli du champ),
-  // on rattache a la 1re page echantillonnee plutot que d'afficher "Page 0".
+  // Page attribution: the batch response indicates the final number in "page".
+  // If the model returns an unknown/absent number (hallucination, missing field),
+  // we attach it to the first sampled page rather than showing "Page 0".
   const rawPage = typeof o.page === 'number' && Number.isFinite(o.page) ? o.page : NaN;
   const validPages = [...sourceByFinal.keys()];
   const finalPageNumber = sourceByFinal.has(rawPage) ? rawPage : (validPages[0] ?? 0);

@@ -1,18 +1,18 @@
 /**
- * TemplateProfile : profil typographique et geometrique d'un template PDF.
+ * TemplateProfile: typographic and geometric profile of a PDF template.
  *
- * Port TS de la dataclass TemplateProfile + auto_detect_template() du moteur
- * V1 (python/substitute.py). Sert au pipeline V2 (blockDetector, substitutor)
- * pour identifier les fiches produit dans n'importe quel template sans
- * heuristiques figees ni hardcodes par template.
+ * TS port of the TemplateProfile dataclass + auto_detect_template() from the
+ * V1 engine (python/substitute.py). Used by the V2 pipeline (blockDetector,
+ * substitutor) to identify product sheets in any template without hardcoded
+ * per-template heuristics.
  *
- * Strategie de detection :
- *  1. Heuristique pure (detectProfileHeuristic) : echantillonne les spans,
- *     trouve le pattern font le plus probable pour nom/cle/valeur. Marche
- *     sur les templates conventionnels (poids typo nommes SemiBold/Medium/etc).
- *  2. Fallback Claude (detectProfileClaude) : si l'heuristique retourne
- *     defaults (= incertaine), on demande a Claude d'analyser un echantillon
- *     et de produire le profil. Generalise aux templates exotiques.
+ * Detection strategy:
+ *  1. Pure heuristic (detectProfileHeuristic): samples the spans, finds the
+ *     most probable font pattern for name/key/value. Works on conventional
+ *     templates (named typo weights SemiBold/Medium/etc).
+ *  2. Claude fallback (detectProfileClaude): if the heuristic returns
+ *     defaults (= uncertain), we ask Claude to analyze a sample and produce
+ *     the profile. Generalizes to exotic templates.
  */
 
 import { promises as fs } from 'fs';
@@ -25,65 +25,65 @@ import { hasKeyValueSeparator } from './keyValueSeparator';
 
 export interface TemplateProfile {
   // === Typo ===
-  /** Substring qu'on cherche dans le font name pour identifier le span "nom produit". */
+  /** Substring searched in the font name to identify the "product name" span. */
   nameFontPattern: string;
-  /** Plage de taille (pt) pour qu'un span soit candidat "nom". */
+  /** Size range (pt) for a span to be a "name" candidate. */
   nameSizeRange: [number, number];
-  /** Taille minimale absolue pour qu'un span soit candidat "nom" (sous laquelle on rejette). */
+  /** Absolute minimum size for a span to be a "name" candidate (rejected below it). */
   nameMinSize: number;
-  /** Substring du font name pour le span "cle de spec" (ex "MECANISME:"). */
+  /** Font-name substring for the "spec key" span (e.g. "MECANISME:"). */
   keyFontPattern: string;
-  /** Taille (pt) typique des cles. */
+  /** Typical size (pt) of keys. */
   keySize: number;
-  /** Substring du font name pour les valeurs de specs. */
+  /** Font-name substring for spec values. */
   valueFontPattern: string;
-  /** Taille (pt) typique des valeurs. */
+  /** Typical size (pt) of values. */
   valueSize: number;
-  /** Substring font pour la ref produit (souvent Regular avec digit). */
+  /** Font substring for the product ref (often Regular with a digit). */
   headerRefFontPattern: string;
-  /** Substring font pour la couleur principale (souvent Medium sans digit). */
+  /** Font substring for the main color (often Medium without a digit). */
   headerColorFontPattern: string;
 
-  // === Geometrie ===
-  /** X max pour qu'un span soit candidat "nom" (a gauche de la page). */
+  // === Geometry ===
+  /** Max X for a span to be a "name" candidate (on the left of the page). */
   nameXMax: number;
-  /** X min a partir duquel commence la colonne des specs. */
+  /** Min X at which the specs column starts. */
   specsXMin: number;
-  /** Hauteur de ligne typique (pt). */
+  /** Typical line height (pt). */
   lineHeight: number;
 
-  // === Bornes blocs ===
-  /** Gap Y entre 2 blocs produit verticaux (pt). */
+  // === Block bounds ===
+  /** Y gap between 2 vertical product blocks (pt). */
   blockYGap: number;
-  /** Marge Y depuis le bas de page pour le dernier bloc produit (pt). */
+  /** Y margin from the bottom of the page for the last product block (pt). */
   blockLastBottomMargin: number;
-  /** Hauteur de la zone header (sous le nom : ref + color). */
+  /** Height of the header zone (under the name: ref + color). */
   blockHeaderZoneHeight: number;
-  /** Ratio multiplicateur de name_size pour la zone header adaptive. */
+  /** name_size multiplier ratio for the adaptive header zone. */
   blockHeaderZoneSizeRatio: number;
-  /** Offset Y depuis le bas du header pour commencer la zone variantes. */
+  /** Y offset from the bottom of the header to start the variants zone. */
   blockHeaderExcludeYOffset: number;
 
   // === Color / Ref ===
-  /** Plage de taille pour spans color/ref. */
+  /** Size range for color/ref spans. */
   colorRefSizeRange: [number, number];
-  /** Espacement horizontal entre color et ref (pt). */
+  /** Horizontal spacing between color and ref (pt). */
   colorRefSpacing: number;
 
-  // === Variantes ===
-  /** Plage taille des vignettes carrees de variantes couleur. */
+  // === Variants ===
+  /** Size range of the square color-variant thumbnails. */
   variantCircleSizeRange: [number, number];
-  /** Ratio w/h pour considerer une bbox "carree". */
+  /** w/h ratio to consider a bbox "square". */
   squareRatioRange: [number, number];
-  /** Plage taille des pictos (NF, made in France...) — a EXCLURE des variantes. */
+  /** Size range of pictograms (NF, made in France...) — to EXCLUDE from variants. */
   pictoSizeRange: [number, number];
 
-  // === Tolerances merge nom (wrapping multi-ligne) ===
+  // === Name merge tolerances (multi-line wrapping) ===
   nameMergeXTolerance: number;
   nameMergeYTolerance: number;
   nameMergeSizeTolerance: number;
 
-  // === Tolerances specs ===
+  // === Spec tolerances ===
   specInlineYTolerance: number;
   specInlineXTolerance: number;
   specContinuationYExtra: number;
@@ -91,9 +91,9 @@ export interface TemplateProfile {
 
   // === Banner / Ribbon ===
   bannerMinSize: number;
-  /** Marge droite : zone d'erase specs s'arrete a (pageWidth - ribbonMargin)
-   *  pour preserver les rubans verticaux de droite (section ribbon, page
-   *  number, etc.). Le nom est legacy (V1) ; ça signifie "right margin". */
+  /** Right margin: the specs erase zone stops at (pageWidth - ribbonMargin)
+   *  to preserve the vertical ribbons on the right (section ribbon, page
+   *  number, etc.). The name is legacy (V1); it means "right margin". */
   ribbonMargin: number;
 
   // === Provenance ===
@@ -143,22 +143,22 @@ export const DEFAULT_PROFILE: TemplateProfile = {
   source: 'fallback',
 };
 
-// ─── Constantes de detection ─────────────────────────────────────────────────
+// ─── Detection constants ─────────────────────────────────────────────────────
 
-/** Patterns de font à chercher dans le nom du fichier font pour identifier
- *  un texte "fort" (= nom produit, généralement le plus gros à gauche).
+/** Font patterns to look for in the font file name to identify "strong" text
+ *  (= product name, usually the largest on the left).
  *
- *  Listes étendues :
- *   - EN : SemiBold, Bold, Black, Heavy, Demibold, ExtraBold, UltraBold
- *   - FR : Gras, Demi-Gras
- *   - DE : Fett, Halbfett
- *   - ES : Negrita
- *   - PostScript weight names : 700, 800, 900 (sometimes embedded in font name)
- *   - Display fonts often used in titles : Display, Title, Headline, Heading
+ *  Extended lists:
+ *   - EN: SemiBold, Bold, Black, Heavy, Demibold, ExtraBold, UltraBold
+ *   - FR: Gras, Demi-Gras
+ *   - DE: Fett, Halbfett
+ *   - ES: Negrita
+ *   - PostScript weight names: 700, 800, 900 (sometimes embedded in font name)
+ *   - Display fonts often used in titles: Display, Title, Headline, Heading
  *
- *  Match par substring insensible casse via .includes() côté caller. */
+ *  Case-insensitive substring match via .includes() on the caller side. */
 const DETECT_NAME_FONT_CANDIDATES = [
-  // EN poids gras
+  // EN bold weights
   'SemiBold', 'Semibold', 'Semi-Bold',
   'Bold',
   'Black', 'Heavy',
@@ -173,7 +173,7 @@ const DETECT_NAME_FONT_CANDIDATES = [
   'Negrita',
   // PostScript weight (numeric)
   '700', '800', '900',
-  // Display / Title fonts (souvent utilisées pour les titres produit)
+  // Display / Title fonts (often used for product titles)
   'Display', 'Headline', 'Heading', 'Title',
 ];
 const NAME_ZONE_GUESS_RATIO = 0.45;
@@ -184,37 +184,36 @@ const DETECT_NAME_SIZE_MAX_CLAMP = 24.0;
 const DETECT_SPECS_X_OFFSET = 4.0;
 const DETECT_NAME_X_MARGIN = 10.0;
 const DETECT_NAME_X_FACTOR = 0.9;
-/** Seuil minimum de candidats (keys de specs OU spans de nom) pour
- *  considerer qu'une page est une "fiche produit standard" exploitable
- *  pour la detection de profil typo. 3 = compromis entre :
- *   - eviter les pages a 1-2 specs (intercalaires/cover faussement product)
- *   - accepter les fiches avec peu de specs (vue compact / produit simple).
- *  Audit mineur : factorise depuis 4 occurrences inline. */
+/** Minimum candidate threshold (spec keys OR name spans) to consider a page
+ *  a "standard product sheet" usable for typo profile detection. 3 = a
+ *  compromise between:
+ *   - avoiding pages with 1-2 specs (intercalaires/cover wrongly seen as product)
+ *   - accepting sheets with few specs (compact view / simple product).
+ *  Minor audit: factored out from 4 inline occurrences. */
 const MIN_KEY_CANDIDATES = 3;
 
-// ─── Heuristique pure (port V1 auto_detect_template) ────────────────────────
+// ─── Pure heuristic (V1 auto_detect_template port) ──────────────────────────
 
 /**
- * Detecte le profil d'un template via heuristique pure sur les raw_spans
- * d'une (ou plusieurs) page(s) d'echantillon. Equivalent du V1
- * auto_detect_template() en Python.
+ * Detects a template's profile via a pure heuristic on the raw_spans of one
+ * (or several) sample page(s). Equivalent to the V1 auto_detect_template() in
+ * Python.
  *
- * On echantillonne plusieurs pages et on prend la 1ere qui produit un
- * pattern de nom convaincant (>= 3 candidats). Sinon on retombe sur defaults.
+ * We sample several pages and take the first that produces a convincing name
+ * pattern (>= 3 candidates). Otherwise we fall back to defaults.
  */
 export function detectProfileHeuristic(pages: ExtractedPage[]): TemplateProfile {
-  // Echantillon large : on cherche une page "fiche produit standard" (avec
-  // spec keys ":" + noms gros a gauche). Les intercalaires/sommaires sont
-  // skip puisqu'ils n'ont pas de keys.
+  // Broad sample: we look for a "standard product sheet" page (with ":" spec
+  // keys + large names on the left). Intercalaires/sommaires are skipped
+  // since they have no keys.
   const candidates = pickSamplePages(pages, 12);
 
-  // 1. Collecter TOUS les profils valides parmi les pages d'échantillon.
-  // Sur catalogue homogène (Catalogue A, Catalogue E), tous les profils sont équivalents
-  // → on prend le premier. Sur catalogue hétérogène (Catalogue C = certaines
-  // pages tabulaires multi-cols + autres verticales), on préfère le
-  // profil avec le nameXMax le plus grand (= tabulaire détecté), qui
-  // couvre les deux layouts (zone élargie n'empêche pas de matcher noms
-  // étroits).
+  // 1. Collect ALL valid profiles among the sample pages.
+  // On a homogeneous catalog (Catalogue A, Catalogue E), all profiles are
+  // equivalent → we take the first. On a heterogeneous catalog (Catalogue C =
+  // some multi-col tabular pages + other vertical ones), we prefer the
+  // profile with the largest nameXMax (= tabular detected), which covers both
+  // layouts (a widened zone does not prevent matching narrow names).
   const allProfiles: TemplateProfile[] = [];
   for (const page of candidates) {
     const spans = page.raw_spans;
@@ -223,26 +222,26 @@ export function detectProfileHeuristic(pages: ExtractedPage[]): TemplateProfile 
     if (profile) allProfiles.push(profile);
   }
   if (allProfiles.length > 0) {
-    // Préférer le profil avec nameXMax le plus grand (= profil tabulaire
-    // s'il existe, sinon n'importe quel profil vertical équivalent).
+    // Prefer the profile with the largest nameXMax (= tabular profile if it
+    // exists, otherwise any equivalent vertical profile).
     //
-    // Validation anti-outlier : si UN seul profil "extra-large" se distingue
-    // (>= 90% pageW alors que les autres sont a 50-60% pageW), c'est suspect
-    // (page d'index, footer table, watermark) → on l'ignore et on prend la
-    // majorité. Seuil : best > 1.5x median ET best est isolé (1 seul profil
-    // dans la fourchette top).
+    // Anti-outlier validation: if a SINGLE "extra-large" profile stands out
+    // (>= 90% pageW while the others are at 50-60% pageW), it is suspicious
+    // (index page, footer table, watermark) → we ignore it and take the
+    // majority. Threshold: best > 1.5x median AND best is isolated (a single
+    // profile in the top bracket).
     if (allProfiles.length >= 3) {
       const xMaxValues = allProfiles.map((p) => p.nameXMax).sort((a, b) => a - b);
       const median = xMaxValues[Math.floor(xMaxValues.length / 2)];
       const topCandidate = allProfiles.reduce((a, b) =>
         b.nameXMax > a.nameXMax ? b : a,
       );
-      // Combien de profils sont "proches" du top (>= 90% de son nameXMax) ?
+      // How many profiles are "close" to the top (>= 90% of its nameXMax)?
       const closeToTop = allProfiles.filter(
         (p) => p.nameXMax >= topCandidate.nameXMax * 0.9,
       ).length;
       if (topCandidate.nameXMax > median * 1.5 && closeToTop === 1) {
-        // Outlier détecté : on rejette le top et on prend le 2e meilleur.
+        // Outlier detected: we reject the top and take the 2nd best.
         const filtered = allProfiles.filter((p) => p !== topCandidate);
         const best = filtered.reduce((a, b) =>
           b.nameXMax > a.nameXMax ? b : a,
@@ -256,19 +255,18 @@ export function detectProfileHeuristic(pages: ExtractedPage[]): TemplateProfile 
     return best;
   }
 
-  // 2. Fallback : aggregation multi-pages. Couvre les templates ou aucune
-  // page seule n'a >= 3 keyCandidates (typiquement : 1-2 fiches produit par
-  // page, beaucoup de pages d'identite/intercalaires). On agrège les spans
-  // de toutes les pages echantillonnees pour atteindre le seuil et detecter
-  // un pattern global.
+  // 2. Fallback: multi-page aggregation. Covers templates where no single
+  // page has >= 3 keyCandidates (typically: 1-2 product sheets per page, many
+  // identity/intercalaire pages). We aggregate the spans of all sampled pages
+  // to reach the threshold and detect a global pattern.
   const aggregatedSpans: TextSpan[] = [];
   for (const page of candidates) {
     if (page.raw_spans) aggregatedSpans.push(...page.raw_spans);
   }
   if (aggregatedSpans.length >= 5 && candidates.length > 0) {
-    // Page virtuelle : meme dimensions que la 1ere candidate (les ratios
-    // bbox sont relatifs au pageW). On choisit la page avec le plus grand
-    // pageW pour ne pas filtrer trop aggressivement par nameZoneGuess.
+    // Virtual page: same dimensions as the first candidate (the bbox ratios
+    // are relative to pageW). We pick the page with the largest pageW so as
+    // not to filter too aggressively by nameZoneGuess.
     const refPage = candidates.reduce((a, b) =>
       a.page_size.width >= b.page_size.width ? a : b,
     );
@@ -283,8 +281,8 @@ export function detectProfileHeuristic(pages: ExtractedPage[]): TemplateProfile 
     if (profile) return profile;
   }
 
-  // 3. Pas de pattern trouve meme aggrege : retour defaults.
-  // Le caller peut alors basculer sur detectProfileClaude.
+  // 3. No pattern found even aggregated: return defaults.
+  // The caller can then fall back to detectProfileClaude.
   return { ...DEFAULT_PROFILE };
 }
 
@@ -293,21 +291,21 @@ function detectFromPage(page: ExtractedPage, spans: TextSpan[]): TemplateProfile
   const nameZoneGuess = pageW * NAME_ZONE_GUESS_RATIO;
   const specsZoneGuess = pageW * SPECS_ZONE_GUESS_RATIO;
 
-  // Detection cles (spans contenant ":" a droite de la page). Si moins de
-  // MIN_KEY_CANDIDATES keys, ce n'est pas une page "fiche produit" — on
-  // skip. Filtre essentiel pour eviter de prendre une page sommaire/
-  // intercalaire comme reference (qui donnerait un name_size_range fausse
-  // pour le reste du catalogue).
+  // Key detection (spans containing ":" on the right of the page). If fewer
+  // than MIN_KEY_CANDIDATES keys, this is not a "product sheet" page — we
+  // skip. Essential filter to avoid taking a sommaire/intercalaire page as a
+  // reference (which would give a wrong name_size_range for the rest of the
+  // catalog).
   let keyCandidates = spans.filter(
     (s) => hasKeyValueSeparator(s.text) && s.bbox[0] > specsZoneGuess,
   );
-  // Flag layout : true si on a basculé sur le fallback tabulaire. Sur ce
-  // layout, les noms produit sont distribués sur N colonnes à droite des
-  // keys (X variés), donc nameXMax doit couvrir toute la largeur dispo.
+  // Layout flag: true if we switched to the tabular fallback. On this layout,
+  // the product names are distributed across N columns to the right of the
+  // keys (varied X), so nameXMax must cover the entire available width.
   let tabularLayout = false;
-  // Fallback layout tabulaire (catalogues type Catalogue C / Catalogue B) : keys
-  // sans separateur ":" mais alignees Y avec ≥1 valeur(s) en colonnes a
-  // droite. Ne se declenche QUE si le 1er passage echoue (compat Catalogue A).
+  // Tabular layout fallback (catalogs like Catalogue C / Catalogue B): keys
+  // without a ":" separator but Y-aligned with ≥1 value(s) in columns on the
+  // right. Triggers ONLY if the first pass fails (Catalogue A compat).
   if (keyCandidates.length < MIN_KEY_CANDIDATES) {
     const tabular = detectTabularKeys(spans, pageW);
     if (tabular.length >= MIN_KEY_CANDIDATES) {
@@ -322,13 +320,13 @@ function detectFromPage(page: ExtractedPage, spans: TextSpan[]): TemplateProfile
   const keySize = mostCommon(keyCandidates.map((s) => Math.round(s.size * 10) / 10));
   const keyPattern = extractFontSuffix(keyFont, DEFAULT_PROFILE.keyFontPattern);
 
-  // Sur layout tabulaire (Catalogue C / Catalogue B), les noms produit sont
-  // étalés sur N colonnes à droite des keys, donc nameZoneGuess (zone
-  // gauche) ne les couvre pas. On élargit à pageW * 0.95 (toute la
-  // largeur sauf marge droite).
+  // On a tabular layout (Catalogue C / Catalogue B), the product names are
+  // spread across N columns to the right of the keys, so nameZoneGuess (left
+  // zone) does not cover them. We widen to pageW * 0.95 (the whole width
+  // except the right margin).
   const nameZone = tabularLayout ? pageW * 0.95 : nameZoneGuess;
 
-  // Detection nom : itere sur les candidats de pattern font
+  // Name detection: iterate over the font-pattern candidates
   let namePattern: string | null = null;
   let nameSizes: number[] = [];
   for (const candidate of DETECT_NAME_FONT_CANDIDATES) {
@@ -345,7 +343,7 @@ function detectFromPage(page: ExtractedPage, spans: TextSpan[]): TemplateProfile
     }
   }
 
-  // Fallback : 1er span gros + dans la zone name
+  // Fallback: first large span within the name zone
   if (!namePattern) {
     const bigLeft = spans.filter(
       (s) => s.size >= DEFAULT_PROFILE.nameMinSize && s.bbox[0] < nameZone,
@@ -370,9 +368,9 @@ function detectFromPage(page: ExtractedPage, spans: TextSpan[]): TemplateProfile
     keyCandidates.length > 0
       ? Math.min(...keyCandidates.map((s) => s.bbox[0])) - DETECT_SPECS_X_OFFSET
       : DEFAULT_PROFILE.specsXMin;
-  // Sur layout tabulaire : noms étalés sur N colonnes → nameXMax = pageW
-  // (presque toute la largeur). Sur layout vertical Catalogue A : zone gauche
-  // standard.
+  // On tabular layout: names spread across N columns → nameXMax = pageW
+  // (almost the whole width). On Catalogue A vertical layout: standard left
+  // zone.
   const nameXMax = tabularLayout
     ? pageW * 0.95
     : Math.max(
@@ -381,7 +379,7 @@ function detectFromPage(page: ExtractedPage, spans: TextSpan[]): TemplateProfile
       );
   const lineHeight = Math.round(keySize * LINE_HEIGHT_RATIO * 10) / 10;
 
-  // Detection valeur (font Light / Regular au meme Y que les cles)
+  // Value detection (font Light / Regular at the same Y as the keys)
   let valuePattern = DEFAULT_PROFILE.valueFontPattern;
   if (keyCandidates.length > 0) {
     const keysY = new Set(keyCandidates.map((s) => Math.round(s.bbox[1])));
@@ -423,12 +421,12 @@ export interface DetectProfileClaudeOptions {
 }
 
 /**
- * Demande a Claude de generer un TemplateProfile en analysant un echantillon
- * de raw_spans. Utile quand l'heuristique pure echoue (fonts custom, templates
- * exotiques sans suffixe typo lisible).
+ * Asks Claude to generate a TemplateProfile by analyzing a sample of
+ * raw_spans. Useful when the pure heuristic fails (custom fonts, exotic
+ * templates with no readable typo suffix).
  *
- * Claude ecrit le profil dans workDir/profile.json via Edit. On le relit et
- * on valide les champs essentiels avant de fusionner avec DEFAULT_PROFILE.
+ * Claude writes the profile to workDir/profile.json via Edit. We read it back
+ * and validate the essential fields before merging with DEFAULT_PROFILE.
  */
 export async function detectProfileClaude(
   opts: DetectProfileClaudeOptions,
@@ -439,8 +437,8 @@ export async function detectProfileClaude(
   if (samples.length === 0) return { ...DEFAULT_PROFILE };
 
   const profilePath = path.join(opts.workDir, 'profile.json');
-  // Pre-creer un stub vide que Claude doit Edit (sinon il devra Write, hors
-  // allowedTools).
+  // Pre-create an empty stub that Claude must Edit (otherwise it would have
+  // to Write, which is outside allowedTools).
   await fs.writeFile(
     profilePath,
     JSON.stringify({ status: 'TODO_FILL_BELOW' }, null, 2),
@@ -511,32 +509,32 @@ Ecris ce JSON STRICTEMENT dans ${profilePath} via Edit. Garde les autres champs 
 
 export interface DetectProfileOptions {
   pages: ExtractedPage[];
-  /** Si true, force l'appel Claude meme si l'heuristique trouve un profil. */
+  /** If true, forces the Claude call even if the heuristic finds a profile. */
   forceClaude?: boolean;
-  /** Si true, l'heuristique seule (pas de fallback Claude). Defaut false. */
+  /** If true, heuristic only (no Claude fallback). Default false. */
   heuristicOnly?: boolean;
   workDir?: string;
   projectDir?: string;
   claudeBin?: string;
 }
 
-// P2.7 : cache module-level. Key = signature des pages (taille + sample
-// spans). Sur run repete avec meme template (test ou batch), gain ~10ms.
-// Max 32 entrees (eviction FIFO : on supprime la 1ere inseree a
-// l'overflow — Map JS preserve l'ordre d'insertion). Pas un vrai LRU.
+// P2.7: module-level cache. Key = page signature (size + sample spans). On a
+// repeated run with the same template (test or batch), saves ~10ms. Max 32
+// entries (FIFO eviction: we remove the first inserted on overflow — JS Map
+// preserves insertion order). Not a true LRU.
 const PROFILE_CACHE = new Map<string, TemplateProfile>();
 const PROFILE_CACHE_MAX = 32;
 
 export function profileSignature(pages: ExtractedPage[]): string {
-  // Signature robuste discriminante (faille review : signature precedente
-  // collidait sur 2 templates partageant les 5 premiers fonts/sizes — cas
-  // typique : 2 catalogues d'une meme marque avec cover identique).
+  // Robust discriminating signature (review flaw: the previous signature
+  // collided on 2 templates sharing the first 5 fonts/sizes — a typical case:
+  // 2 catalogs from the same brand with an identical cover).
   //
-  // Dimensions discriminantes :
-  //   - nombre total de pages (cat 30p vs cat 200p)
-  //   - dimensions de page (A4 portrait vs A3 paysage)
-  //   - 10 premiers spans (fonts + sizes) sur 6 pages
-  //   - histogramme des sizes (top 5 distinct sizes triees)
+  // Discriminating dimensions:
+  //   - total page count (30p cat vs 200p cat)
+  //   - page dimensions (A4 portrait vs A3 landscape)
+  //   - first 10 spans (fonts + sizes) over 6 pages
+  //   - size histogram (top 5 distinct sizes, sorted)
   const totalPages = pages.length;
   const sample = pages.slice(0, 6);
   const parts: string[] = [`n=${totalPages}`];
@@ -548,7 +546,7 @@ export function profileSignature(pages: ExtractedPage[]): string {
       .slice(0, 10)
       .map((s) => `${s.font}/${s.size.toFixed(1)}`)
       .join(',');
-    // Histogramme : top 5 sizes distinctes (triees)
+    // Histogram: top 5 distinct sizes (sorted)
     const uniqueSizes = Array.from(
       new Set(sp.slice(0, 50).map((s) => Math.round(s.size * 2) / 2)),
     )
@@ -560,19 +558,19 @@ export function profileSignature(pages: ExtractedPage[]): string {
   return parts.join('|');
 }
 
-/** Reset cache (tests). */
+/** Reset the cache (tests). */
 export function clearProfileCache(): void {
   PROFILE_CACHE.clear();
 }
 
 /**
- * Point d'entree : heuristique d'abord, Claude en fallback si l'heuristique
- * retombe sur defaults OU si forceClaude=true.
+ * Entry point: heuristic first, Claude as fallback if the heuristic falls
+ * back to defaults OR if forceClaude=true.
  */
 export async function detectProfile(
   opts: DetectProfileOptions,
 ): Promise<TemplateProfile> {
-  // Cache heuristique uniquement (Claude est intentionnellement re-evalue).
+  // Heuristic-only cache (Claude is intentionally re-evaluated).
   if (opts.heuristicOnly && !opts.forceClaude) {
     const sig = profileSignature(opts.pages);
     const cached = PROFILE_CACHE.get(sig);
@@ -601,24 +599,24 @@ export async function detectProfile(
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Détecte les spans "key" via alignement tabulaire (sans séparateur intra-span).
+/** Detects "key" spans via tabular alignment (without an intra-span separator).
  *
- *  Cas typique : catalogues type Catalogue C / Catalogue B où les keys sont en
- *  colonne 1 à gauche, alignées Y avec ≥1 valeur(s) en colonnes 2..N à droite.
- *  Exemple : "Référence" | "002236" | "002281" | "002282" sur même Y.
+ *  Typical case: catalogs like Catalogue C / Catalogue B where the keys are in
+ *  column 1 on the left, Y-aligned with ≥1 value(s) in columns 2..N on the
+ *  right. Example: "Référence" | "002236" | "002281" | "002282" on the same Y.
  *
- *  Heuristique :
- *   1. Group spans par Y (tolerance ±2pt, modulo erreurs d'alignement PDF).
- *   2. Pour chaque ligne avec ≥2 spans triés par X :
- *      - 1ère span à gauche (bbox[0] < pageW * 0.5) — c'est la key
- *      - écart X entre 1ère et 2ème ≥ MIN_TAB_GAP — élimine les groupes mots
- *      - 1ère span texte non vide, sans séparateur (sinon comptée ailleurs)
- *   3. Retourne les 1ères spans qualifiées.
+ *  Heuristic:
+ *   1. Group spans by Y (tolerance ±2pt, modulo PDF alignment errors).
+ *   2. For each line with ≥2 spans sorted by X:
+ *      - first span on the left (bbox[0] < pageW * 0.5) — that is the key
+ *      - X gap between first and second ≥ MIN_TAB_GAP — eliminates word groups
+ *      - first span non-empty text, without a separator (else counted elsewhere)
+ *   3. Returns the qualified first spans.
  *
- *  Garde-fous anti-faux-positif (paragraphe libre, intercalaire) :
- *   - Filtre nombres purs (1, 12, 002236) — pas des keys
- *   - Filtre lignes uniques (orphelines)
- *   - Exige texte de longueur ≥ 3 char et ≤ 60 char.
+ *  Anti-false-positive guards (free paragraph, intercalaire):
+ *   - Filters pure numbers (1, 12, 002236) — not keys
+ *   - Filters single (orphan) lines
+ *   - Requires text of length ≥ 3 chars and ≤ 60 chars.
  */
 function detectTabularKeys(spans: TextSpan[], pageW: number): TextSpan[] {
   const MIN_TAB_GAP = 100.0;
@@ -639,9 +637,9 @@ function detectTabularKeys(spans: TextSpan[], pageW: number): TextSpan[] {
     buckets.set(yKey, list);
   }
   const candidates: TextSpan[] = [];
-  // Anti faux-positif TOC : pattern "[label] [p.XX]" très fréquent dans
-  // sommaires (Catalogue A, Catalogue B, etc.). Exclu si ligne = exactement 2 spans
-  // et 2ème = numéro de page (avec ou sans "p." préfixe).
+  // TOC anti-false-positive: the "[label] [p.XX]" pattern is very common in
+  // sommaires (Catalogue A, Catalogue B, etc.). Excluded if the line = exactly
+  // 2 spans and the 2nd is a page number (with or without "p." prefix).
   const TOC_PAGE_NUM_RE = /^p\.?\s*\d{1,4}\s*$/i;
   for (const line of buckets.values()) {
     if (line.length < 2) continue;
@@ -650,16 +648,16 @@ function detectTabularKeys(spans: TextSpan[], pageW: number): TextSpan[] {
     const second = sorted[1];
     const txt = first.text.trim();
     if (txt.length < MIN_TEXT_LEN || txt.length > MAX_TEXT_LEN) continue;
-    if (/^[\d.,\s]+$/.test(txt)) continue; // nombres purs
-    if (hasKeyValueSeparator(txt)) continue; // déjà comptée
+    if (/^[\d.,\s]+$/.test(txt)) continue; // pure numbers
+    if (hasKeyValueSeparator(txt)) continue; // already counted
     if (first.bbox[0] > pageW * MAX_KEY_LEFT_X_RATIO) continue;
     if (second.bbox[0] - first.bbox[0] < MIN_TAB_GAP) continue;
     if (line.length === 2 && TOC_PAGE_NUM_RE.test(second.text.trim())) continue;
     candidates.push(first);
   }
-  // Anti faux-positif : exiger que ≥3 keys partagent un X commun (= colonne
-  // gauche d'une fiche produit tabulaire). Bandeaux d'intercalaires dispersés
-  // sur des X différents échouent ce test.
+  // Anti-false-positive: require ≥3 keys to share a common X (= left column
+  // of a tabular product sheet). Intercalaire bands scattered across
+  // different X fail this test.
   if (candidates.length < MIN_CLUSTER_SIZE) return [];
   const clusters: TextSpan[][] = [];
   for (const c of candidates) {

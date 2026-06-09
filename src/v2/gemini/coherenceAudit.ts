@@ -1,17 +1,17 @@
 /**
- * Audit de cohérence globale via Gemini Pro Vision (context 1M tokens).
+ * Global coherence audit via Gemini Pro Vision (1M-token context).
  *
- * Différent de visualAudit (cas A) qui détecte les bugs page par page :
- * coherenceAudit prend UN ENSEMBLE de pages substituées et détecte les
- * incohérences CROSS-PAGE :
- *  - Typographie hétérogène (tailles/fonts différents pour les mêmes éléments)
- *  - Couleurs inconsistantes (palette qui varie sans raison)
- *  - Hiérarchie cassée (header niveau 1 plus petit que niveau 2)
- *  - Alignements verticaux décalés entre pages similaires
- *  - Numérotation incohérente (saut, doublon, format)
- *  - Sommaire vs pages : sections mentionnées mais absentes ou vice-versa
+ * Different from visualAudit (case A) which detects bugs page by page:
+ * coherenceAudit takes A SET of substituted pages and detects CROSS-PAGE
+ * inconsistencies:
+ *  - Heterogeneous typography (different sizes/fonts for the same elements)
+ *  - Inconsistent colors (palette varying for no reason)
+ *  - Broken hierarchy (level-1 header smaller than level 2)
+ *  - Vertical alignments shifted between similar pages
+ *  - Inconsistent pagination (skip, duplicate, format)
+ *  - TOC vs pages: sections mentioned but absent or vice versa
  *
- * Un seul appel Gemini Pro Vision en batch — économise les requêtes.
+ * A single batched Gemini Pro Vision call — saves requests.
  */
 
 import { promises as fs } from 'fs';
@@ -22,7 +22,7 @@ import { parseGeminiJson } from './jsonParse';
 import type { Plan } from '../types';
 
 export interface CoherenceIssue {
-  /** Type d'incohérence détectée. */
+  /** Type of inconsistency detected. */
   category:
     | 'typography'
     | 'color'
@@ -31,11 +31,11 @@ export interface CoherenceIssue {
     | 'pagination'
     | 'toc_mismatch'
     | 'other';
-  /** Pages concernées (1-based, dans le PDF final). */
+  /** Pages concerned (1-based, in the final PDF). */
   pages: number[];
-  /** Sévérité : critical bloque la livraison, minor = à corriger plus tard. */
+  /** Severity: critical blocks delivery, minor = fix later. */
   severity: 'critical' | 'minor';
-  /** Description précise du problème. */
+  /** Precise description of the problem. */
   description: string;
 }
 
@@ -43,12 +43,12 @@ export interface CoherenceAuditOptions {
   outPdfPath: string;
   plan: Plan;
   workDir: string;
-  /** Nombre max de pages échantillonnées. Default 12 (économie tokens). */
+  /** Max number of sampled pages. Default 12 (token savings). */
   maxPages?: number;
-  /** Activé. Default true si key dispo. */
+  /** Enabled. Default true if key available. */
   enabled?: boolean;
-  /** Modèle Gemini. Default flash (free tier OK ; pro est payant uniquement
-   *  sur free tier — billing requis pour pro). */
+  /** Gemini model. Default flash (free tier OK; pro is paid-only on free
+   *  tier — billing required for pro). */
   model?: string;
 }
 
@@ -75,14 +75,14 @@ export async function coherenceAudit(
     return { ran: false, issues: [], sampledPages: [], durationMs: Date.now() - t0, notes: ['GEMINI_KEY absente'] };
   }
 
-  // 1. Selection des pages a analyser : on prend toutes les pages SUBSTITUEES
-  // (mode operations) + le sommaire si distinct. Sample uniformement si trop.
+  // 1. Selection of the pages to analyze: we take all SUBSTITUTED pages
+  // (operations mode) + the TOC if distinct. Sample uniformly if too many.
   const candidates: { finalNum: number; sourcePage: number; type: 'product' | 'toc' | 'other' }[] = [];
   for (let i = 0; i < opts.plan.pages.length; i++) {
     const p = opts.plan.pages[i];
     if (p.render.mode === 'operations') {
       const finalNum = i + 1;
-      // Heuristique simple : si beaucoup d'ops (>= 30) = page produit/sommaire substantiel
+      // Simple heuristic: many ops (>= 30) = substantial product/TOC page
       const opsCount = p.render.operations.length;
       const type = opsCount >= 30 ? 'product' : 'other';
       candidates.push({ finalNum, sourcePage: p.source_page, type });
@@ -96,7 +96,7 @@ export async function coherenceAudit(
     ? candidates
     : pickEvenly(candidates, maxPages);
 
-  // 2. Rasterise chaque page sampled
+  // 2. Rasterize each sampled page
   const auditDir = path.join(opts.workDir, 'coherence-audit');
   await fs.mkdir(auditDir, { recursive: true });
   const rendered: { finalNum: number; pngBytes: Buffer; pngPath: string }[] = [];
@@ -123,9 +123,9 @@ export async function coherenceAudit(
     };
   }
 
-  // 3. Analyse Vision multi-image via l'API (cascade de modeles multimodaux,
-  //    cf. client.ts). Le CLI Gemini est ABANDONNE (lent + pas d'image gen) :
-  //    la coherence cross-page passe par les modeles flash/3.x de la cascade.
+  // 3. Multi-image Vision analysis via the API (cascade of multimodal models,
+  //    cf. client.ts). The Gemini CLI is ABANDONED (slow + no image gen):
+  //    cross-page coherence goes through the cascade's flash/3.x models.
   const prompt = buildCoherencePrompt(rendered.map((r) => r.finalNum));
   const res = await analyzeMultiImage({
     prompt,
@@ -138,7 +138,7 @@ export async function coherenceAudit(
     fallbackModel: GEMINI_MODELS.flashLite,
     temperature: 0.2,
     module: 'coherenceAudit',
-    // Audit auxiliaire : fail-fast sur quota plutot que dormir (cf. visualAudit).
+    // Auxiliary audit: fail-fast on quota rather than sleeping (cf. visualAudit).
     maxRetryDelayMs: 8000,
   });
   const provider = res.usedFallback ? 'api-cascade-fallback' : 'api';

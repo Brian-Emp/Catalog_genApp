@@ -1,27 +1,27 @@
 /**
- * reflowSpecsV2 — refonte du rendu des specs produit.
+ * reflowSpecsV2 — overhaul of the product specs rendering.
  *
- * Design : tableau 2 colonnes (key + dot leader + value) avec regroupement
- * par categorie (TECHNIQUE / DIMENSIONS / FINITION / GARANTIE /
- * CONDITIONNEMENT / AUTRES). Headers de categorie en gras petit, separateurs
- * fins entre groupes.
+ * Design: 2-column table (key + dot leader + value) with grouping by
+ * category (TECHNIQUE / DIMENSIONS / FINITION / GARANTIE /
+ * CONDITIONNEMENT / AUTRES). Category headers in small bold, thin
+ * separators between groups.
  *
- * Responsive :
- *  - peu (≤ 3 specs)     → pas de categories, vue aeree + interligne large
- *  - moyen (4-8 specs)   → tableau categorise standard
- *  - beaucoup (> 8 specs) → tableau compact (font value shrink + interligne
- *                          serre pour faire tenir tout)
+ * Responsive:
+ *  - few (≤ 3 specs)     → no categories, airy view + wide line spacing
+ *  - medium (4-8 specs)  → standard categorized table
+ *  - many (> 8 specs)    → compact table (value font shrink + tight line
+ *                          spacing to fit everything)
  *
- * Layout colonne :
- *  - keyX  = block.specsXLeft (heritage template)
- *  - valX  = max(keyEndX) + gap uniforme sur toutes les rows
+ * Column layout:
+ *  - keyX  = block.specsXLeft (inherited from template)
+ *  - valX  = max(keyEndX) + uniform gap across all rows
  *  - valW  = pageWidth - ribbonMargin - valX
- *  - dot leader entre keyEnd et valX en couleur grise tres claire
+ *  - dot leader between keyEnd and valX in a very light gray
  *
- * Categorisation : regex sur les keys (insensible casse), fallback AUTRES.
+ * Categorization: regex on the keys (case-insensitive), AUTRES fallback.
  *
- * Anti-debordement : si meme apres font shrink la zone deborde, on signale
- * "+N autres" sur la derniere row visible (comme reflowSpecs V1).
+ * Anti-overflow: if the zone still overflows even after font shrink, we
+ * signal "+N autres" on the last visible row (like reflowSpecs V1).
  */
 
 import type { Bbox, Operation, PlanProduct, PlanProductSpec } from '../../types';
@@ -32,7 +32,7 @@ import { estimateTextWidth, splitForWrap, cleanupLineEnd } from './fit';
 import { normalizeValue } from './normalizeValue';
 import { styleKeyFromTemplate } from './keyStyle';
 
-// ── Categorisation ──────────────────────────────────────────────────────────
+// ── Categorization ──────────────────────────────────────────────────────────
 
 export type CategoryKey =
   | 'TECHNIQUE'
@@ -44,45 +44,45 @@ export type CategoryKey =
 
 interface CategoryDef {
   key: CategoryKey;
-  /** Label affiche dans le header. */
+  /** Label shown in the header. */
   label: string;
-  /** Regex de matching des keys (insensible casse). */
+  /** Regex matching the keys (case-insensitive). */
   re: RegExp;
 }
 
-/** Ordre d'affichage des categories quand plusieurs sont presentes : on
- *  privilegie technique d'abord, puis dimensions, finition, garantie,
- *  conditionnement, et enfin les autres. */
+/** Display order of categories when several are present: we favor technique
+ *  first, then dimensions, finition, garantie, conditionnement, and finally
+ *  the others. */
 const CATEGORIES: CategoryDef[] = [
-  // TECHNIQUE : matière / mécanisme / débit / pression / température / norme
-  // Multi-langue : FR + EN (material/mechanism/flow/pressure/temperature/standard)
+  // TECHNIQUE: material / mechanism / flow / pressure / temperature / standard
+  // Multi-language: FR + EN (material/mechanism/flow/pressure/temperature/standard)
   //               + DE (material/druck) + IT/ES (materia/presion) + PT (materia)
   { key: 'TECHNIQUE', label: 'Technique',
     re: /mati(?:è|e)re|material|materia|m(?:é|e)canisme|mechanism|meccanismo|m(?:é|e)ca\b|d(?:é|e)bit|flow|pression|pressure|druck|presion|temp(?:é|e)rature|temperature|norme|standard|certif|(?:é|e)nerg(?:é|e)tique|energy|(?:é|e)nergi|raccord|fitting|alim|power|cartouche|cartridge/i },
-  // DIMENSIONS : longueur / largeur / hauteur / profondeur / épaisseur / taille / format
-  // Multi-langue : FR + EN (length/width/height/depth/thickness/size/format)
+  // DIMENSIONS: length / width / height / depth / thickness / size / format
+  // Multi-language: FR + EN (length/width/height/depth/thickness/size/format)
   //               + DE (länge/breite/höhe/tiefe — translit) + IT (lunghezza/larghezza/altezza)
   //               + ES (longitud/anchura/altura/profundidad)
   { key: 'DIMENSIONS', label: 'Dimensions',
     re: /longueur|length|longitud|lunghezza|comprimento|laenge|l(?:ä|a)nge|diam(?:è|e)tre|diameter|diametro|durchmesser|hauteur|height|altura|altezza|h(?:ö|o)he|largeur|width|anchura|larghezza|breite|profondeur|depth|profundidad|profondit|tiefe|(?:é|e)paisseur|thickness|espesor|spessore|dicke|taille|size|tama|format|capacit|capacity|capacidad|capacita|encombrement|entr(?:é|e)es?\s+axes/i },
-  // FINITION : couleur / finition / aspect / texture
-  // Multi-langue : FR + EN (color/finish/aspect/texture) + DE (farbe/oberflache)
+  // FINITION: color / finish / aspect / texture
+  // Multi-language: FR + EN (color/finish/aspect/texture) + DE (farbe/oberflache)
   //               + IT (colore/finitura) + ES (color/acabado) + PT (cor/acabamento)
   { key: 'FINITION', label: 'Finition',
     re: /coloris|finition|finish|couleur|color|colour|farbe|cor\b|colore|aspect|aspecto|texture|textur|oberfl(?:ä|a)che|acabado|acabamento|finitura/i },
-  // GARANTIE : duree / durabilite / SAV
-  // Multi-langue : FR + EN (warranty/durability/service) + DE (garantie/dauer)
+  // GARANTIE: duration / durability / after-sales service
+  // Multi-language: FR + EN (warranty/durability/service) + DE (garantie/dauer)
   //               + IT (garanzia/durata) + ES (garantia/duracion) + PT (garantia/duracao)
   { key: 'GARANTIE', label: 'Garantie',
     re: /garantie|warranty|garant[ií]a|garanzia|dur(?:é|e)e|duration|durata|duracao|duraci(?:ó|o)n|dauer|durabilit|durability|sav\b|service/i },
-  // CONDITIONNEMENT : emballage / packaging / carton / blister / boite
-  // Multi-langue : FR + EN (packaging/box) + DE (verpackung/karton)
+  // CONDITIONNEMENT: packaging / box / carton / blister
+  // Multi-language: FR + EN (packaging/box) + DE (verpackung/karton)
   //               + IT (imballaggio/scatola) + ES (embalaje/caja) + PT (embalagem/caixa)
   { key: 'CONDITIONNEMENT', label: 'Conditionnement',
     re: /conditionnement|emballage|packaging|embalaje|embalagem|imballaggio|verpackung|condit\.?|nature.*conditionnement|carton|karton|cartone|caja|caixa|bo[iî]te|box|scatola|coque|blister/i },
 ];
 
-/** Categorise une key vers une CategoryKey. Cas non match → AUTRES. */
+/** Categorizes a key into a CategoryKey. No-match case → AUTRES. */
 export function categorize(key: string): CategoryKey {
   const k = key.trim();
   for (const cat of CATEGORIES) {
@@ -102,8 +102,8 @@ interface CategoryGroup {
   specs: PlanProductSpec[];
 }
 
-/** Repartit les specs par categorie en preservant l'ordre d'apparition
- *  d'origine au sein de chaque categorie. Categories vides droppees. */
+/** Distributes the specs by category, preserving the original order of
+ *  appearance within each category. Empty categories are dropped. */
 export function groupByCategory(specs: PlanProductSpec[]): CategoryGroup[] {
   const withCat: SpecWithCat[] = specs.map((s) => ({ spec: s, category: categorize(s.key) }));
   const groups: CategoryGroup[] = [];
@@ -117,19 +117,19 @@ export function groupByCategory(specs: PlanProductSpec[]): CategoryGroup[] {
   return groups;
 }
 
-// ── Constantes layout ───────────────────────────────────────────────────────
+// ── Layout constants ────────────────────────────────────────────────────────
 
-/** Plancher du shrink relativement a la taille de DEPART. 0.88 = on tolere
- *  au plus 12% de reduction, sinon on wrap. Plus haut que V1 (0.72) pour
- *  garder les values bien lisibles. */
+/** Shrink floor relative to the STARTING size. 0.88 = we tolerate at most a
+ *  12% reduction, otherwise we wrap. Higher than V1 (0.72) to keep the
+ *  values nicely legible. */
 const VALUE_FONT_SHRINK_MIN_RATIO = 0.88;
 const VALUE_FONT_SHRINK_STEP = 0.25;
-/** Largeur MIN reservee a la colonne value (pt). Force la troncature ou le
- *  shrink des keys longues si necessaire, plutot que de laisser les keys
- *  coloniser toute la largeur et reduire la colonne value a quasi rien. */
+/** MIN width reserved for the value column (pt). Forces truncation or
+ *  shrinking of long keys when necessary, rather than letting the keys
+ *  colonize the whole width and shrink the value column to almost nothing. */
 const MIN_VALUE_COL_W = 110;
-/** Plancher du shrink applique aux KEYS quand elles depassent le plafond
- *  colValueX impose. */
+/** Shrink floor applied to the KEYS when they exceed the imposed colValueX
+ *  cap. */
 const KEY_FONT_SHRINK_MIN_RATIO = 0.80;
 const KEY_VAL_GAP = 8;
 const DOT_LEADER_CHAR = '·';
@@ -140,34 +140,34 @@ const SEPARATOR_GAP_PT = 4;
 const CATEGORY_HEADER_SIZE_RATIO = 0.85;
 const CATEGORY_HEADER_COLOR = '#666666';
 const CATEGORY_HEADER_GAP_PT = 2;
-/** Seuil pour passer en mode aere (sans headers de categorie). */
+/** Threshold for switching to airy mode (no category headers). */
 const FEW_SPECS_THRESHOLD = 3;
-/** Seuil pour passer en mode compact (font shrink + interligne serre). */
+/** Threshold for switching to compact mode (font shrink + tight line spacing). */
 const MANY_SPECS_THRESHOLD = 9;
-/** Interligne max pour la vue aeree : on ne souhaite pas etaler outre mesure. */
+/** Max line spacing for the airy view: we don't want to spread out excessively. */
 const AERATED_LINE_SPACING_RATIO = 1.60;
 const STANDARD_LINE_SPACING_RATIO = 1.35;
 const COMPACT_LINE_SPACING_RATIO = 1.10;
 
-// Style key (heritage template) : voir reflow/keyStyle.ts — implementation
-// consolidee (audit #5) partagee avec reflowSpecs.ts.
+// Key style (inherited from template): see reflow/keyStyle.ts — consolidated
+// implementation (audit #5) shared with reflowSpecs.ts.
 
 // ── Entry point ─────────────────────────────────────────────────────────────
 
 export interface ReflowSpecsV2Context {
   pageWidth: number;
   profile: TemplateProfile;
-  /** Mode multi-cols horizontal (S6.5).
-   *  - 'vertical' (default) : layout standard, 1 produit par bloc.
-   *  - 'horizontal-primary' : 1er bloc d'une row horizontale (emet keys
-   *    en col gauche partagee + values dans sa colonne).
-   *  - 'horizontal-secondary' : bloc suivant d'une row horizontale (emet
-   *    SEULEMENT ses values dans sa colonne, pas les keys).
+  /** Horizontal multi-column mode (S6.5).
+   *  - 'vertical' (default): standard layout, 1 product per block.
+   *  - 'horizontal-primary': 1st block of a horizontal row (emits keys in
+   *    the shared left column + values in its own column).
+   *  - 'horizontal-secondary': following block of a horizontal row (emits
+   *    ONLY its values in its column, not the keys).
    *
-   *  Quand non specifie : 'vertical'. Comportement backward-compatible. */
+   *  When unspecified: 'vertical'. Backward-compatible behavior. */
   horizontalMode?: 'vertical' | 'horizontal-primary' | 'horizontal-secondary';
-  /** X droit de la colonne du bloc courant (mode horizontal).
-   *  Au-dela : zone du bloc voisin → eviter d'eraser/inserer la-bas. */
+  /** Right X of the current block's column (horizontal mode).
+   *  Beyond it: the neighboring block's zone → avoid erasing/inserting there. */
   horizontalColRight?: number;
 }
 
@@ -181,16 +181,16 @@ export function reflowSpecsV2(
   const tplSpecs = block.specs;
   if (tplSpecs.length === 0) return ops;
 
-  // Zone d'effacement = pleine largeur specs jusqu'au ribbon margin.
-  // Clamp protection : si specsYTop < nameSpan.bbox[3] (ex Catalogue E dense),
-  // l'erase mordrait sur le nameSpan qui a deja ete insere par reflowName.
-  // On force eraseTop >= nameSpan.bbox[3] + 1 (1pt gap) pour preserver le nom.
+  // Erase zone = full specs width up to the ribbon margin.
+  // Clamp protection: if specsYTop < nameSpan.bbox[3] (e.g. dense Catalogue E),
+  // the erase would bite into the nameSpan already inserted by reflowName.
+  // We force eraseTop >= nameSpan.bbox[3] + 1 (1pt gap) to preserve the name.
   //
-  // Mode horizontal (S6.5) : en horizontal-primary ET horizontal-secondary,
-  // on limite l'erase a la colonne du bloc (horizontalColRight) pour ne pas
-  // effacer le contenu des blocs voisins meme row. Avant le fix, seul le
-  // secondary etait clampe → primary effacait pleine page AVANT secondary
-  // → conflit ordre erase/insert.
+  // Horizontal mode (S6.5): in both horizontal-primary AND horizontal-secondary,
+  // we limit the erase to the block's column (horizontalColRight) so we don't
+  // erase the content of neighboring blocks in the same row. Before the fix,
+  // only the secondary was clamped → primary erased the full page BEFORE
+  // secondary → erase/insert ordering conflict.
   const isHorizontal =
     ctx.horizontalMode === 'horizontal-secondary'
     || ctx.horizontalMode === 'horizontal-primary';
@@ -204,11 +204,11 @@ export function reflowSpecsV2(
     typeof nameBottom === 'number'
       ? Math.max(rawEraseTop, nameBottom + 1)
       : rawEraseTop;
-  // Pad gauche elargi (-12 vs -2) pour absorber les keys template longues
-  // qui peuvent demarrer 2-6pt a gauche de specsXLeft (jitter PDFium baseline
-  // + glyph metrics). Faille Catalogue C P6 "DIAMÈTREÈTRE" : ancien template
-  // "Diamètre :" pas efface par l'erase fond, nouveau "DIAMÈTRE MAXIMUM..."
-  // inscrit par-dessus → superposition visuelle.
+  // Left pad widened (-12 vs -2) to absorb long template keys that may start
+  // 2-6pt to the left of specsXLeft (PDFium baseline jitter + glyph metrics).
+  // Catalogue C P6 "DIAMÈTREÈTRE" bug: old template "Diamètre :" not erased
+  // by the background erase, new "DIAMÈTRE MAXIMUM..." written over it →
+  // visual overlap.
   const eraseBbox: Bbox = [
     block.specsXLeft - 12,
     safeEraseTop,
@@ -219,7 +219,7 @@ export function reflowSpecsV2(
 
   if (newSpecs.length === 0) return ops;
 
-  // Style template : heritage de la 1ere spec template (font/size/color key + value)
+  // Template style: inherited from the 1st template spec (font/size/color key + value)
   const refKey = tplSpecs[0].key;
   const refVal = tplSpecs[0].values[0] ?? refKey;
   const refKeyFont = refKey.font;
@@ -229,20 +229,20 @@ export function reflowSpecsV2(
   const refValSize = refVal.size;
   const refValColor = refVal.color;
 
-  // ── Decision mode responsive ────────────────────────────────────────────
+  // ── Responsive mode decision ────────────────────────────────────────────
   const n = newSpecs.length;
   const aerated = n <= FEW_SPECS_THRESHOLD;
   const compact = n >= MANY_SPECS_THRESHOLD;
   const useCategories = !aerated;
 
-  // Regroupement (si mode tableau categorise)
+  // Grouping (if categorized table mode)
   const groups = useCategories
     ? groupByCategory(newSpecs)
     : [{ key: 'AUTRES' as CategoryKey, label: '', specs: newSpecs }];
 
-  // ── Calcul des largeurs : colonne value uniforme = max(keyEndX) ─────────
-  // On precalcule chaque key stylee + sa largeur estimee pour decider valX.
-  // keySize peut etre shrunk si les keys debordent le plafond colValueX.
+  // ── Width computation: uniform value column = max(keyEndX) ──────────────
+  // We precompute each styled key + its estimated width to decide valX.
+  // keySize may be shrunk if the keys overflow the colValueX cap.
   let keyFontSize = refKeySize;
   const keyFloorSize = refKeySize * KEY_FONT_SHRINK_MIN_RATIO;
   interface RowInfo {
@@ -250,9 +250,9 @@ export function reflowSpecsV2(
     keyEndX: number;
     safeVal: string;
   }
-  // Plafond colValueX : on garde au minimum MIN_VALUE_COL_W pour la colonne
-  // value. Evite qu'une key tres longue ("DUREE DE GARANTIE (EN ANNEES) :")
-  // ne pousse colValueX trop a droite et reduise la zone value a presque rien.
+  // colValueX cap: we keep at least MIN_VALUE_COL_W for the value column.
+  // Prevents a very long key ("DUREE DE GARANTIE (EN ANNEES) :") from pushing
+  // colValueX too far right and shrinking the value zone to almost nothing.
   const colValueXCap = eraseRight - MIN_VALUE_COL_W;
 
   function computeKeyEnd(keyText: string, size: number): number {
@@ -261,19 +261,19 @@ export function reflowSpecsV2(
     return block.specsXLeft + Math.max(tplKeyW, estKeyW);
   }
 
-  // 1ere passe : keys a taille pleine
+  // 1st pass: keys at full size
   const rowInfos: RowInfo[] = [];
   for (const g of groups) {
     for (const s of g.specs) {
       const keyText = styleKeyFromTemplate(s.key, refKey.text);
       const keyEndX = computeKeyEnd(keyText, keyFontSize);
-      // Normalisation par value (espaces unites, casse) AVANT le join,
-      // pour que les regles s'appliquent a chaque value individuelle.
+      // Per-value normalization (unit spaces, case) BEFORE the join, so the
+      // rules apply to each individual value.
       const valueText = (s.values ?? []).map(normalizeValue).join(', ').trim();
       rowInfos.push({ keyText, keyEndX, safeVal: safeText(valueText) });
     }
   }
-  // Si une key depasse le cap : on shrink uniformement les keys du bloc
+  // If a key exceeds the cap: shrink the block's keys uniformly
   let maxKeyEndX = rowInfos.length > 0
     ? Math.max(...rowInfos.map((r) => r.keyEndX))
     : block.specsXLeft;
@@ -286,26 +286,26 @@ export function reflowSpecsV2(
         ...rowInfos.map((r) => computeKeyEnd(r.keyText, keyFontSize))
       );
     }
-    // Mise a jour des keyEndX recalculees avec la nouvelle keyFontSize
+    // Update the recomputed keyEndX with the new keyFontSize
     for (const r of rowInfos) {
       r.keyEndX = computeKeyEnd(r.keyText, keyFontSize);
     }
   }
-  // Mode horizontal multi-cols (S6.5) : la valeur de chaque bloc doit etre
-  // dans la COL DU BLOC (X=nameSpan.bbox[0]) pas dans la col gauche commune.
-  // Sinon les 3 valeurs des 3 blocs s'empilent au meme X (cas Catalogue C P14 :
-  // "Puissance $800w" = 900W+1200W+1500W superposees illisible).
+  // Horizontal multi-column mode (S6.5): each block's value must be in the
+  // BLOCK'S COLUMN (X=nameSpan.bbox[0]), not in the shared left column.
+  // Otherwise the 3 values of the 3 blocks stack at the same X (Catalogue C P14
+  // case: "Puissance $800w" = 900W+1200W+1500W overlapping, unreadable).
   const colValueX = isHorizontal
     ? Math.min(block.nameSpan.bbox[0], colValueXCap)
     : Math.min(maxKeyEndX + KEY_VAL_GAP, colValueXCap);
   const colAvailableW = Math.max(MIN_VALUE_COL_W, eraseRight - colValueX);
 
-  // ── Shrink font value pour faire tenir sur 1 ligne (uniforme bloc) ──────
-  // Taille de DEPART = refKeySize (= meme taille que la key). Cas template
-  // ou la value template a une taille reduite par convention : on l'ignore
-  // pour viser la meme lisibilite que les keys. La key shrink eventuelle
-  // (keyFontSize < refKeySize) n'affecte PAS la value (les values restent
-  // lisibles meme si keys un poil tassees).
+  // ── Shrink value font to fit on 1 line (uniform across block) ───────────
+  // STARTING size = refKeySize (= same size as the key). For templates where
+  // the template value has a reduced size by convention: we ignore it to aim
+  // for the same legibility as the keys. The possible key shrink
+  // (keyFontSize < refKeySize) does NOT affect the value (values stay
+  // legible even if the keys are a touch tighter).
   const startSize = refKeySize;
   const floorSize = startSize * VALUE_FONT_SHRINK_MIN_RATIO;
   let uniformValSize = startSize;
@@ -318,30 +318,30 @@ export function reflowSpecsV2(
     if (s < uniformValSize) uniformValSize = s;
   }
 
-  // ── Layout vertical : on calcule yStep adaptatif selon mode ────────────
+  // ── Vertical layout: compute the adaptive yStep per mode ────────────────
   const lineH = refKey.bbox[3] - refKey.bbox[1];
   const lineSpacingRatio = aerated ? AERATED_LINE_SPACING_RATIO
     : compact ? COMPACT_LINE_SPACING_RATIO
     : STANDARD_LINE_SPACING_RATIO;
   let yStep = refKeySize * lineSpacingRatio;
-  // Categorie header height + gap
+  // Category header height + gap
   const catHeaderSize = refKeySize * CATEGORY_HEADER_SIZE_RATIO;
   const catHeaderH = catHeaderSize * 1.15 + CATEGORY_HEADER_GAP_PT;
-  // Nombre d'elements verticaux total
+  // Total number of vertical elements
   const nCatHeaders = useCategories ? groups.length : 0;
   const nSeparators = useCategories ? Math.max(0, groups.length - 1) : 0;
   const totalNeededH = nCatHeaders * catHeaderH
     + n * yStep
     + nSeparators * SEPARATOR_GAP_PT;
   const availableH = block.specsYBottom - block.specsYTop;
-  // Si on deborde, on serre le yStep
+  // If we overflow, tighten the yStep
   if (totalNeededH > availableH && n > 0) {
     const surplus = totalNeededH - availableH;
     const reduction = surplus / n;
     yStep = Math.max(refKeySize * COMPACT_LINE_SPACING_RATIO, yStep - reduction);
   }
 
-  // ── Emission ops ─────────────────────────────────────────────────────────
+  // ── Emit ops ─────────────────────────────────────────────────────────────
   let y = block.specsYTop;
   let emittedCount = 0;
   let overflowSurplus = 0;
@@ -349,7 +349,7 @@ export function reflowSpecsV2(
 
   for (let gi = 0; gi < groups.length; gi++) {
     const g = groups[gi];
-    // Separator entre categories (pas avant la 1ere)
+    // Separator between categories (not before the 1st)
     if (useCategories && gi > 0) {
       const sepY = y + SEPARATOR_GAP_PT * 0.4;
       ops.push({
@@ -359,12 +359,12 @@ export function reflowSpecsV2(
       });
       y += SEPARATOR_GAP_PT;
     }
-    // Header de categorie. On le masque dans 3 cas :
-    //  - mode aere (pas de regroupement visuel)
-    //  - categorie AUTRES (= specs non classees, on ne veut pas afficher un
-    //    label "AUTRES" disgracieux ; les specs sont affichees sans header)
-    //  - g.specs vide (defense en profondeur : groupByCategory devrait deja
-    //    avoir droppe les categories sans specs)
+    // Category header. We hide it in 3 cases:
+    //  - airy mode (no visual grouping)
+    //  - AUTRES category (= unclassified specs, we don't want to show an
+    //    unsightly "AUTRES" label; the specs are shown without a header)
+    //  - g.specs empty (defense in depth: groupByCategory should already
+    //    have dropped the categories without specs)
     const showHeader = useCategories
       && g.label
       && g.key !== 'AUTRES'
@@ -372,11 +372,11 @@ export function reflowSpecsV2(
     if (showHeader) {
       const headerY0 = y;
       const headerY1 = y + catHeaderSize * 1.15;
-      // Verifie qu'on a la place pour [header + au moins 1 ligne spec]
+      // Check we have room for [header + at least 1 spec line]
       const minNeeded = headerY1 + CATEGORY_HEADER_GAP_PT + lineH;
       if (minNeeded > block.specsYBottom + 4) {
-        // Pas la place pour header + 1 spec : skip cette categorie entiere,
-        // signale en overflow.
+        // No room for header + 1 spec: skip this whole category, signal it
+        // as overflow.
         overflowSurplus += g.specs.length;
         rowIdx += g.specs.length;
         continue;
@@ -391,23 +391,23 @@ export function reflowSpecsV2(
       });
       y = headerY1 + CATEGORY_HEADER_GAP_PT;
     }
-    // Specs de la categorie
+    // Specs of the category
     for (let si = 0; si < g.specs.length; si++) {
       const spec = g.specs[si];
       const info = rowInfos[rowIdx];
       rowIdx++;
       const keyY0 = y;
       const keyY1 = y + lineH;
-      // Verifie debordement zone
+      // Check zone overflow
       if (keyY1 > block.specsYBottom + 4) {
         overflowSurplus = newSpecs.length - emittedCount;
         break;
       }
-      // Mode horizontal-secondary : on skip l'emission des keys (col gauche
-      // deja emise par le bloc primary de la row). On insere SEULEMENT les
-      // values dans la colonne du bloc courant (S6.5 etape 3).
+      // horizontal-secondary mode: skip emitting the keys (left column
+      // already emitted by the row's primary block). Insert ONLY the values
+      // in the current block's column (S6.5 step 3).
       const skipKeys = ctx.horizontalMode === 'horizontal-secondary';
-      // Insert key (avec keyFontSize potentiellement shrunk si keys longues)
+      // Insert key (with keyFontSize possibly shrunk if keys are long)
       if (!skipKeys) {
         ops.push({
           op: 'insert_text',
@@ -418,7 +418,7 @@ export function reflowSpecsV2(
           color: refKeyColor,
         });
       }
-      // Dot leader entre keyEnd et colValueX (largeur calculee dynamiquement)
+      // Dot leader between keyEnd and colValueX (width computed dynamically)
       const leaderStartX = info.keyEndX + 2;
       const leaderEndX = colValueX - 2;
       const leaderW = leaderEndX - leaderStartX;
@@ -437,7 +437,7 @@ export function reflowSpecsV2(
           });
         }
       }
-      // Insert value (wrap si necessaire)
+      // Insert value (wrap if necessary)
       if (info.safeVal) {
         const fullW = estimateTextWidth(info.safeVal, uniformValSize);
         if (fullW <= colAvailableW) {
@@ -450,7 +450,7 @@ export function reflowSpecsV2(
             color: refValColor,
           });
         } else {
-          // Wrap 2 lignes via splitForWrap (semantic breakpoints)
+          // Wrap to 2 lines via splitForWrap (semantic breakpoints)
           const split = splitForWrap(info.safeVal, colAvailableW, uniformValSize);
           ops.push({
             op: 'insert_text',
@@ -461,11 +461,11 @@ export function reflowSpecsV2(
             color: refValColor,
           });
           if (split.line2) {
-            // Position Y de la 2e ligne d'une value wrappee.
-            // V2 utilise yStep * 0.55 (V1 = 0.5) car le layout V2 a un
-            // interligne plus aere (AERATED/STANDARD_LINE_SPACING_RATIO),
-            // donc on peut se permettre un offset un peu plus grand sans
-            // chevaucher la row suivante. Audit #10 documente.
+            // Y position of the 2nd line of a wrapped value.
+            // V2 uses yStep * 0.55 (V1 = 0.5) because the V2 layout has airier
+            // line spacing (AERATED/STANDARD_LINE_SPACING_RATIO), so we can
+            // afford a slightly larger offset without overlapping the next
+            // row. Documented in audit #10.
             const y2 = keyY0 + yStep * 0.55;
             let line2 = split.line2;
             const l2W = estimateTextWidth(line2, uniformValSize);
@@ -485,10 +485,10 @@ export function reflowSpecsV2(
               size: uniformValSize,
               color: refValColor,
             });
-            // Decale la row suivante. En mode compact (yStep proche de lineH),
-            // l'ancien max(0, lineH + 1 - yStep*0.45) donnait une marge ~1pt
-            // entre line2 bottom et next row top → chevauchement visuel
-            // (descenders/ascenders). On force min 2pt extra (faille review #10).
+            // Shift the next row. In compact mode (yStep close to lineH), the
+            // old max(0, lineH + 1 - yStep*0.45) gave a ~1pt margin between
+            // line2 bottom and the next row top → visual overlap
+            // (descenders/ascenders). We force a min 2pt extra (review #10 bug).
             const wrapExtra = Math.max(2, lineH + 2 - yStep * 0.40);
             y += wrapExtra;
           }
@@ -500,7 +500,7 @@ export function reflowSpecsV2(
     if (emittedCount < rowInfos.filter((_, idx) => idx < rowIdx).length) break;
   }
 
-  // ── Signal overflow ─────────────────────────────────────────────────────
+  // ── Overflow signal ─────────────────────────────────────────────────────
   if (overflowSurplus > 0 && emittedCount > 0) {
     const noteY0 = y - yStep + lineH + 2;
     if (noteY0 + lineH <= block.specsYBottom + 4) {

@@ -1,10 +1,10 @@
 /**
- * Description marketing par section : Claude genere 1-2 phrases courtes
- * presentant chaque section produit. Inseree dans la zone description du
- * sommaire (a la place du texte template effaces).
+ * Marketing description per section: Claude generates 1-2 short sentences
+ * presenting each product section. Inserted into the description area of the
+ * sommaire (in place of the erased template text).
  *
- * Output : map section → phrase. Le caller decide ou inserer (sur sommaire,
- * sous banner produit, etc.).
+ * Output: map section → sentence. The caller decides where to insert it (on
+ * the sommaire, under the product banner, etc.).
  */
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -13,7 +13,7 @@ import { CLAUDE_CLI_TIMEOUT_MS } from '../timeouts';
 import type { PlanProduct } from '../types';
 
 export interface DescriptionWriterOptions {
-  /** Sections a documenter : 1 entry par section, avec ses produits. */
+  /** Sections to document: 1 entry per section, with its products. */
   sections: { label: string; products: PlanProduct[] }[];
   workDir: string;
   projectDir: string;
@@ -26,7 +26,7 @@ export interface DescriptionWriterResult {
   durationMs: number;
   costUsd?: number;
   notes: string[];
-  /** Map section label → phrase marketing (1-2 phrases courtes). */
+  /** Map section label → marketing sentence (1-2 short sentences). */
   descriptions: Record<string, string>;
 }
 
@@ -42,8 +42,8 @@ export async function generateDescriptions(
   try {
     await fs.writeFile(auditPath, JSON.stringify({ descriptions: {}, notes: [] }, null, 2), 'utf8');
   } catch (e) {
-    // workDir disparu (race avec cleanup) ou disque plein → on remonte
-    // l'erreur en note, pipeline continue sans descriptions.
+    // workDir gone (race with cleanup) or disk full → we surface the error
+    // as a note, the pipeline continues without descriptions.
     return {
       ran: false,
       durationMs: Date.now() - t0,
@@ -59,16 +59,16 @@ export async function generateDescriptions(
     claudeBin: opts.claudeBin,
     timeoutMs: CLAUDE_CLI_TIMEOUT_MS,
     allowedTools: 'Edit',
-    // Haiku 4.5 : rapide (~5-8s) et fiable si le prompt met l'instruction
-    // Edit EN TOUT PREMIER et donne le schema avant les regles. Cf. prompt
-    // restructure ci-dessous. On pin la version (pas l'alias 'haiku') pour
-    // garantir la reproductibilite des resultats.
+    // Haiku 4.5: fast (~5-8s) and reliable if the prompt puts the Edit
+    // instruction FIRST and gives the schema before the rules. See the
+    // restructured prompt below. We pin the version (not the 'haiku' alias)
+    // to guarantee reproducible results.
     model: 'claude-haiku-4-5',
   });
   if (!res.ok) {
     const rawMsg = res.result ?? '';
-    // Detection auth fail Claude : message explicite pour que l'utilisateur
-    // sache qu'il doit re-login (vs un echec mystere "failed: ").
+    // Claude auth-fail detection: explicit message so the user knows they
+    // must re-login (vs a mysterious "failed: " error).
     const isAuthFail = /401|authenticate|authentication_error|Invalid authentication/i.test(rawMsg);
     const note = isAuthFail
       ? 'claude auth expirée — relance `claude login` puis copie ~/.claude/.credentials.json (descriptions sommaire désactivées)'
@@ -103,20 +103,20 @@ export async function generateDescriptions(
   } catch (e) {
     notes.push('parse descriptions failed: ' + (e as Error).message);
   }
-  // Fallback : si Claude a repondu en TEXTE au lieu d'editer (cas observe sur
-  // Haiku avec plusieurs sections), on parse la reponse pour y extraire un
-  // JSON ou des paires label/phrase. Permet de recuperer le travail meme
-  // quand le tool Edit n'a pas ete invoque.
+  // Fallback: if Claude replied with TEXT instead of editing (observed on
+  // Haiku with several sections), we parse the response to extract a JSON or
+  // label/sentence pairs. Lets us recover the work even when the Edit tool
+  // was not invoked.
   if (Object.keys(descriptions).length === 0 && res.result) {
     const fallback = parseClaudeTextFallback(res.result, opts.sections.map((s) => s.label));
     if (Object.keys(fallback).length > 0) {
       descriptions = fallback;
       notes.push(`fallback texte : ${Object.keys(fallback).length} description(s) extraite(s) de la reponse non-Edit`);
-      // Persiste pour debug.
+      // Persist for debugging.
       await fs.writeFile(auditPath, JSON.stringify({ descriptions, notes }, null, 2), 'utf8').catch(() => {});
     } else {
-      // Log debug : on garde les 600 premiers chars de la reponse Claude
-      // pour comprendre pourquoi rien n'a ete extrait (cf. logs Docker).
+      // Debug log: we keep the first 600 chars of Claude's response to
+      // understand why nothing was extracted (see Docker logs).
       console.error('[descriptionWriter] claude empty descriptions ; raw result:', res.result.slice(0, 600));
     }
   }
@@ -129,16 +129,16 @@ export async function generateDescriptions(
   };
 }
 
-/** Cherche un objet JSON dans le texte (regex sur premier bloc {...}) et tente
- *  de parser. Si echoue, cherche des paires "LABEL": "phrase" ligne par ligne.
- *  Sert de filet de secours quand Claude n'utilise pas le tool Edit. */
+/** Looks for a JSON object in the text (regex on the first {...} block) and
+ *  attempts to parse it. On failure, looks for "LABEL": "sentence" pairs line
+ *  by line. Acts as a safety net when Claude does not use the Edit tool. */
 function parseClaudeTextFallback(
   text: string,
   validLabels: string[],
 ): Record<string, string> {
   const out: Record<string, string> = {};
   const labelSet = new Set(validLabels);
-  // 1) Recherche bloc JSON entier
+  // 1) Search for a full JSON block
   const jsonMatch = text.match(/\{[\s\S]*"descriptions"[\s\S]*\}/);
   if (jsonMatch) {
     try {
@@ -153,10 +153,10 @@ function parseClaudeTextFallback(
         if (Object.keys(out).length > 0) return out;
       }
     } catch {
-      /* JSON malforme, on continue avec le fallback ligne-par-ligne */
+      /* Malformed JSON, we continue with the line-by-line fallback */
     }
   }
-  // 2) Fallback ligne par ligne : "LABEL": "phrase" ou LABEL: phrase
+  // 2) Line-by-line fallback: "LABEL": "sentence" or LABEL: sentence
   for (const label of validLabels) {
     const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const re = new RegExp(`"?${escaped}"?\\s*:\\s*"([^"]{20,200})"`, 'i');
@@ -173,9 +173,9 @@ function buildPrompt(
   sections: { label: string; products: PlanProduct[] }[],
   auditPath: string,
 ): string {
-  // Prompt compact pour Haiku 4.5 : 3 produits/section (vs 5 avant) avec
-  // max 2 specs cles. Reduit le contexte de ~40% sans amputer trop la
-  // matiere : 2 produits etaient trop peu (phrases <40 chars).
+  // Compact prompt for Haiku 4.5: 3 products/section (vs 5 before) with at
+  // most 2 key specs. Cuts the context by ~40% without trimming too much
+  // material: 2 products were too few (sentences <40 chars).
   const sectionList = sections
     .map((s) => {
       const sampleLines = s.products.slice(0, 3).map((p) => {

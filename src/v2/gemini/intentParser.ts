@@ -1,18 +1,18 @@
 /**
- * Intent Parser : transforme les suggestions textuelles libres (Phase 1
- * intent loop) en intents STRUCTURÉS interpretables programmatiquement.
+ * Intent Parser: transforms the free-form textual suggestions (Phase 1
+ * intent loop) into STRUCTURED intents that are programmatically interpretable.
  *
- * Exemple :
- *   Input : "Décaler le nom produit de 4pt vers la droite pour eviter le
- *            chevauchement avec l'image."
- *   Output : { kind: 'move', target: 'nom produit', deltaXpt: 4 }
+ * Example:
+ *   Input: "Décaler le nom produit de 4pt vers la droite pour eviter le
+ *           chevauchement avec l'image."
+ *   Output: { kind: 'move', target: 'nom produit', deltaXpt: 4 }
  *
- * Architecture : un second appel Gemini Flash-lite avec schema JSON strict.
- * On envoie les phrases libres + la cible (page, contexte), Gemini retourne
- * un mapping structure → on filtre les intents bien formes.
+ * Architecture: a second Gemini Flash-lite call with a strict JSON schema.
+ * We send the free-form sentences + the target (page, context), Gemini returns
+ * a structured mapping → we filter the well-formed intents.
  *
- * Phase 3 (TODO orchestrator) : prendre StructuredIntent[] et generer des
- * ops pdf-engine (subs.json patch) ou des mutations du Plan.
+ * Phase 3 (TODO orchestrator): take StructuredIntent[] and generate
+ * pdf-engine ops (subs.json patch) or Plan mutations.
  */
 
 import { isGeminiAvailable } from './client';
@@ -36,7 +36,7 @@ export interface IntentParserOptions {
 export interface IntentParserResult {
   ran: boolean;
   durationMs: number;
-  /** Map (finalPageNumber, suggestionIdx) → StructuredIntent. */
+  /** Maps (finalPageNumber, suggestionIdx) → StructuredIntent. */
   structured: Array<{
     finalPageNumber: number;
     sourceIntent: string;
@@ -62,8 +62,8 @@ export async function parseStructuredIntents(
   }
 
   const prompt = buildPrompt(opts.suggestions);
-  // pref 'speed' : parsing intent → JSON structure, API flash-lite ideale.
-  // Fallback CLI Gemini Pro si quota API.
+  // pref 'speed': intent parsing → structured JSON, flash-lite API ideal.
+  // Fallback to the Gemini Pro CLI if API quota is hit.
   const res = await routedGenerateText({
     prompt,
     pref: 'speed',
@@ -82,7 +82,7 @@ export async function parseStructuredIntents(
     return { ran: true, durationMs: Date.now() - t0, structured: [], notes };
   }
 
-  // Map back par idx
+  // Map back by idx
   const structured: IntentParserResult['structured'] = [];
   for (const entry of parsed) {
     if (typeof entry.idx !== 'number' || !entry.intent) continue;
@@ -165,8 +165,8 @@ function parseStructuredJson(text: string): ParsedEntry[] | null {
 }
 
 /**
- * Normalise une entree intent Gemini brute en StructuredIntent type-safe.
- * Filtre les payloads malformes. Exporte pour test unitaire.
+ * Normalizes a raw Gemini intent entry into a type-safe StructuredIntent.
+ * Filters out malformed payloads. Exported for unit testing.
  */
 export function normalizeIntent(
   raw: Record<string, unknown>,

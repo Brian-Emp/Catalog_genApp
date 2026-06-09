@@ -12,12 +12,12 @@ interface UploadedFile {
   size: number;
 }
 
-/** Extensions image acceptees au niveau dispatcher upload. Alignee sur
- *  IMAGE_EXTS de productsAdapter (tour 13 + tour 22 magicBytes).
+/** Image extensions accepted at the upload dispatcher level. Aligned with
+ *  IMAGE_EXTS in productsAdapter (round 13 + round 22 magicBytes).
  *
- *  Niveau 1 : png/jpg/jpeg/gif/webp (rendu PyMuPDF natif)
- *  Niveau 2 : tiff/tif/bmp/jfif/ico (decode Pillow standard)
- *  Niveau 3 : heic/heif/avif (best-effort via pillow-heif / pillow-avif) */
+ *  Level 1: png/jpg/jpeg/gif/webp (native PyMuPDF rendering)
+ *  Level 2: tiff/tif/bmp/jfif/ico (standard Pillow decode)
+ *  Level 3: heic/heif/avif (best-effort via pillow-heif / pillow-avif) */
 const IMAGE_EXTS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp',
   '.tiff', '.tif', '.bmp', '.jfif', '.ico',
@@ -39,8 +39,8 @@ export async function extract(
 
   const detected = await detectMagicKind(file.path);
   if (!kindMatchesExt(detected, ext)) {
-    // Détail (signature détectée) gardé en logs serveur pour le debug — pas
-    // exposé au client pour éviter le fingerprinting du detector.
+    // Detail (detected signature) kept in server logs for debugging — not
+    // exposed to the client to avoid fingerprinting the detector.
     console.warn(
       `[extract] rejet "${file.originalname}" ext=${ext || '—'} signature=${detected}`,
     );

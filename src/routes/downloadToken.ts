@@ -1,23 +1,23 @@
 /**
- * Token HMAC pour proteger l'acces aux PDFs generes.
+ * HMAC token to protect access to generated PDFs.
  *
- * Le serveur signe le nom du fichier avec une cle secrete (generee au
- * demarrage si absente de l'env). Le client recoit l'URL avec ?token=...
+ * The server signs the file name with a secret key (generated at startup if
+ * absent from the env). The client receives the URL with ?token=...
  *
- * Expiration : par defaut le token est valable tant que le serveur tourne
- * (meme cle), ce qui garde les liens d'historique cliquables. Si
- * `DOWNLOAD_TTL_MS` est defini (> 0), le token embarque une date d'expiration
- * signee (`<sig>.<exp>`) et est refuse au-dela.
+ * Expiration: by default the token is valid as long as the server is running
+ * (same key), which keeps history links clickable. If `DOWNLOAD_TTL_MS` is
+ * set (> 0), the token embeds a signed expiration date (`<sig>.<exp>`) and is
+ * rejected past that point.
  *
- * La comparaison du token est constant-time (crypto.timingSafeEqual) pour ne
- * pas exposer la signature via un side-channel temporel.
+ * Token comparison is constant-time (crypto.timingSafeEqual) so the signature
+ * is not exposed through a timing side-channel.
  */
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import type { Request, Response, NextFunction } from 'express';
 
 const SECRET = process.env.DOWNLOAD_SECRET ?? randomBytes(32).toString('hex');
 
-/** TTL en ms ; 0 (defaut) = pas d'expiration. Lu au call time pour les tests. */
+/** TTL in ms; 0 (default) = no expiration. Read at call time for the tests. */
 function ttlMs(): number {
   const n = Number(process.env.DOWNLOAD_TTL_MS ?? 0);
   return Number.isFinite(n) && n > 0 ? n : 0;
@@ -27,7 +27,7 @@ function hmacHex(payload: string): string {
   return createHmac('sha256', SECRET).update(payload).digest('hex').slice(0, 32);
 }
 
-/** Comparaison hex constant-time, sure sur longueurs differentes. */
+/** Constant-time hex comparison, safe on differing lengths. */
 function safeEqualHex(a: string, b: string): boolean {
   const ab = Buffer.from(a);
   const bb = Buffer.from(b);
@@ -36,22 +36,22 @@ function safeEqualHex(a: string, b: string): boolean {
 }
 
 /**
- * Signe un nom de fichier → token hex court. Si `exp` > 0, le token est de la
- * forme `<sig>.<exp>` (exp = epoch ms) ; la signature couvre `filename|exp`.
+ * Sign a file name → short hex token. If `exp` > 0, the token has the form
+ * `<sig>.<exp>` (exp = epoch ms); the signature covers `filename|exp`.
  */
 export function signDownloadToken(filename: string, exp = 0): string {
   if (exp > 0) return `${hmacHex(`${filename}|${exp}`)}.${exp}`;
   return hmacHex(filename);
 }
 
-/** Construit l'URL complete avec token (et expiration si DOWNLOAD_TTL_MS). */
+/** Builds the full URL with token (and expiration if DOWNLOAD_TTL_MS). */
 export function signedUrl(filename: string): string {
   const ttl = ttlMs();
   const exp = ttl > 0 ? Date.now() + ttl : 0;
   return `/generated/${filename}?token=${signDownloadToken(filename, exp)}`;
 }
 
-/** Middleware Express : verifie le token query param (constant-time + TTL). */
+/** Express middleware: verifies the token query param (constant-time + TTL). */
 export function verifyDownloadToken(req: Request, res: Response, next: NextFunction): void {
   const file = req.params.file;
   const raw = req.query.token;
@@ -59,7 +59,7 @@ export function verifyDownloadToken(req: Request, res: Response, next: NextFunct
     res.status(403).json({ error: 'token invalide' });
     return;
   }
-  // Forme avec expiration : "<sig>.<exp>". sig=hex (pas de point), exp=chiffres.
+  // Form with expiration: "<sig>.<exp>". sig=hex (no dot), exp=digits.
   const dot = raw.lastIndexOf('.');
   if (dot > 0) {
     const exp = Number(raw.slice(dot + 1));
@@ -78,8 +78,8 @@ export function verifyDownloadToken(req: Request, res: Response, next: NextFunct
     next();
     return;
   }
-  // Forme simple sans expiration. Refusée si une TTL est active, sinon un
-  // token sans expiration contournerait la durée de vie configurée.
+  // Simple form without expiration. Rejected if a TTL is active, otherwise a
+  // token without expiration would bypass the configured lifetime.
   if (ttlMs() > 0) {
     res.status(403).json({ error: 'token invalide' });
     return;

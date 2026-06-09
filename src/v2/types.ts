@@ -1,22 +1,22 @@
 /**
- * Types TypeScript V2 — miroirs des schemas JSON dans src/v2/schemas/.
+ * V2 TypeScript types — mirrors of the JSON schemas in src/v2/schemas/.
  *
- * Convention : chaque interface ici doit etre alignee avec le schema JSON
- * correspondant. Si tu modifies l'un, modifie l'autre.
+ * Convention: each interface here must stay aligned with the corresponding
+ * JSON schema. If you change one, change the other.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sous-types reutilises
+// Reused sub-types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Rectangle [x0, y0, x1, y1] en points PDF, origine top-left. */
+/** Rectangle [x0, y0, x1, y1] in PDF points, top-left origin. */
 export type Bbox = [number, number, number, number];
 
-/** Couleur RGB hexa "#rrggbb". TS ne sait pas valider la regex au type level,
- *  donc on alias juste sur string ; la validation runtime se fait au parsing. */
+/** Hex RGB color "#rrggbb". TS cannot validate the regex at the type level,
+ *  so we just alias to string; runtime validation happens at parsing time. */
 export type ColorHex = string;
 
-/** Fragment de texte avec position et style. */
+/** Text fragment with position and style. */
 export interface TextSpan {
   text: string;
   bbox: Bbox;
@@ -26,10 +26,10 @@ export interface TextSpan {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ExtractedPage — output de l'extracteur C++ (cf extracted-page.schema.json)
+// ExtractedPage — output of the C++ extractor (cf extracted-page.schema.json)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Liste exhaustive des types de slot. `as const` = TS garde les litteraux. */
+/** Exhaustive list of slot types. `as const` = TS keeps the literals. */
 export const SLOT_TYPES = [
   'section_banner',
   'section_ribbon',
@@ -116,7 +116,7 @@ export interface SlotKeepPageRaw extends SlotBase {
   reason?: string;
 }
 
-/** Discriminated union sur `type`. TS narrow automatiquement selon la valeur. */
+/** Discriminated union on `type`. TS narrows automatically based on the value. */
 export type Slot =
   | SlotSectionBanner
   | SlotSectionRibbon
@@ -132,21 +132,21 @@ export interface ExtractedPage {
   page_number: number;
   page_size: { width: number; height: number };
   slots: Slot[];
-  /** Tous les spans texte de la page, sans inference de type. Source de
-   *  verite pour le pipeline V2 qui porte la logique V1 (auto_detect_template,
-   *  find_product_blocks). Optionnel pour retro-compat avec extracts 0.1.x. */
+  /** All the text spans of the page, with no type inference. Source of
+   *  truth for the V2 pipeline that carries the V1 logic (auto_detect_template,
+   *  find_product_blocks). Optional for backward-compat with 0.1.x extracts. */
   raw_spans?: TextSpan[];
-  /** Bbox de toutes les images bitmap (variantes couleur + image principale). */
+  /** Bbox of every bitmap image (color variants + main image). */
   raw_images?: Bbox[];
-  /** Paths colores (non blanc/transparent) avec leur fillColor. Permet
-   *  de retrouver la teinte d'un cartouche section_banner pour substituer
-   *  le texte en preservant le fond template. */
+  /** Colored paths (non white/transparent) with their fillColor. Lets us
+   *  recover the tint of a section_banner cartouche to substitute the
+   *  text while preserving the template background. */
   raw_paths?: { bbox: Bbox; fill_color: ColorHex }[];
   extractor_version?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Plan — output de Claude (cf plan.schema.json)
+// Plan — output of Claude (cf plan.schema.json)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const OPERATION_TYPES = [
@@ -169,12 +169,12 @@ export interface OpSetText {
 }
 
 /**
- * Insertion de texte autonome (sans dependance a un slot pre-extrait).
- * Utilise par le pipeline V2 engine (substitutor) qui detecte ses propres
- * blocs en TS depuis raw_spans. Le caller fournit bbox + style complet.
+ * Standalone text insertion (no dependency on a pre-extracted slot).
+ * Used by the V2 engine pipeline (substitutor) which detects its own
+ * blocks in TS from raw_spans. The caller provides bbox + full style.
  *
- * Note : la bbox sert a positionner l'origine du texte. L'effacement de la
- * zone doit etre fait via un erase_rect separe avant l'insert (PASS 1 / 2).
+ * Note: the bbox positions the text origin. Clearing the area must be
+ * done via a separate erase_rect before the insert (PASS 1 / 2).
  */
 export interface OpInsertText {
   op: 'insert_text';
@@ -183,12 +183,12 @@ export interface OpInsertText {
   font: string;
   size: number;
   color: ColorHex;
-  /** Skip l'auto-erase blanc PASS 1. Utile quand le caller veut juste
-   *  reecrire un glyphe au-dessus de l'ancien (renum pages sur fond
-   *  photo) sans laisser de tache blanche. */
+  /** Skip the PASS 1 white auto-erase. Useful when the caller just wants to
+   *  rewrite a glyph over the old one (page renum on a photo background)
+   *  without leaving a white smudge. */
   no_erase?: boolean;
-  /** Rotation en degres (90 = vertical bottom-to-top, 270 = top-to-bottom).
-   *  Defaut 0 = horizontal. Utilise pour les rubans verticaux. */
+  /** Rotation in degrees (90 = vertical bottom-to-top, 270 = top-to-bottom).
+   *  Default 0 = horizontal. Used for vertical ribbons. */
   rotation?: number;
 }
 
@@ -209,20 +209,20 @@ export interface PlanProduct {
   image_path: string | null;
   specs: PlanProductSpec[];
   variants: PlanProductVariant[];
-  /** Section/sous-sous-famille = niveau le + profond (Libellé SSFamille du
-   *  XLSX, ex "BARRES DE DOUCHES"). Sert au banner section + tri allocator. */
+  /** Section/sub-sub-family = deepest level (XLSX "Libellé SSFamille",
+   *  e.g. "BARRES DE DOUCHES"). Used for the section banner + allocator sort. */
   section?: string | null;
-  /** Grande famille (Libellé Famille du XLSX, ex "SANITAIRE"). Sert a substituer
-   *  le ruban vertical du template (ex "salle de bains" → "SANITAIRE"). Si
-   *  absente, le ruban n'est pas substitue. */
+  /** Top-level family (XLSX "Libellé Famille", e.g. "SANITAIRE"). Used to
+   *  substitute the template's vertical ribbon (e.g. "salle de bains" →
+   *  "SANITAIRE"). If absent, the ribbon is not substituted. */
   family?: string | null;
-  /** Sous-famille = niveau intermédiaire entre family et section (Libellé
-   *  SFamille du XLSX, ex "Robinetterie"). Sert au sommaire 3 niveaux : si
-   *  fournie, la hierarchie devient family > subFamily > section. */
+  /** Sub-family = intermediate level between family and section (XLSX
+   *  "Libellé SFamille", e.g. "Robinetterie"). Used for the 3-level table of
+   *  contents: if provided, the hierarchy becomes family > subFamily > section. */
   subFamily?: string | null;
-  /** Chemin absolu vers le PDF schéma technique du produit (asset *_SC.pdf
-   *  matché par productsAdapter). Si présent, le pipeline ajoute le schéma
-   *  dans la grille "cahier technique" en fin de PDF. */
+  /** Absolute path to the product's technical-schematic PDF (asset *_SC.pdf
+   *  matched by productsAdapter). If present, the pipeline adds the schematic
+   *  to the "technical handbook" grid at the end of the PDF. */
   schema_path?: string | null;
 }
 
@@ -235,32 +235,31 @@ export interface OpFillProductSlot {
 export interface OpEraseRect {
   op: 'erase_rect';
   bbox: Bbox;
-  /** Couleur de remplissage. Default = blanc "#ffffff". Sert a peindre la
-   *  zone d'un cartouche section_banner avec la teinte template originale
-   *  (orange / vert / etc.) au lieu de l'effacer en blanc. */
+  /** Fill color. Default = white "#ffffff". Used to paint the area of a
+   *  section_banner cartouche with the original template tint
+   *  (orange / green / etc.) instead of erasing it to white. */
   color?: ColorHex;
-  /** Si true, le moteur echantillonne la couleur du fond local (bande juste
-   *  au-dessus du rect) et efface avec cette teinte au lieu du blanc. Pour les
-   *  numeros de page sur fond photo CLAIR : evite un bloc blanc visible. */
+  /** If true, the engine samples the local background color (band just
+   *  above the rect) and erases with that tint instead of white. For page
+   *  numbers on a LIGHT photo background: avoids a visible white block. */
   sample_bg?: boolean;
 }
 
-/** Supprime physiquement les paths vectoriels du template dont la bbox
- *  est entierement contenue dans cette zone, ET d'aire < max_area. Utile
- *  quand un erase_rect blanc ne suffit pas car PDFium dessine certains
- *  paths par-dessus. */
+/** Physically removes the template's vector paths whose bbox is entirely
+ *  contained in this area, AND with area < max_area. Useful when a white
+ *  erase_rect is not enough because PDFium draws some paths on top. */
 export interface OpRemovePathsInBbox {
   op: 'remove_paths_in_bbox';
   bbox: Bbox;
-  /** Surface max (pt²) en deca de laquelle un path est candidat a la
-   *  suppression. Defaut cote render.cpp : 1500. Empeche de supprimer
-   *  les cartouches/rubans structurels (typiquement > 1500 pt²). */
+  /** Max area (pt²) below which a path is a candidate for removal.
+   *  Default on the render.cpp side: 1500. Prevents removing the
+   *  structural cartouches/ribbons (typically > 1500 pt²). */
   max_area?: number;
 }
 
-/** Supprime physiquement les TEXT objects du template dont la bbox est
- *  entierement dans cette zone. Utile pour effacer un numero de page sur
- *  fond photo sans laisser de tache (un erase_rect blanc serait visible). */
+/** Physically removes the template's TEXT objects whose bbox is entirely
+ *  within this area. Useful to erase a page number on a photo background
+ *  without leaving a smudge (a white erase_rect would be visible). */
 export interface OpRemoveTextInBbox {
   op: 'remove_text_in_bbox';
   bbox: Bbox;

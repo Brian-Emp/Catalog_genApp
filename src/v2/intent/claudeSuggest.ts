@@ -1,11 +1,11 @@
 /**
- * Démo Claude vision sur PageSchema : on présente la page (PNG + schema
- * sémantique) à Claude et on lui demande de suggérer des IntentOps pour
- * améliorer le rendu (texte coupé, image qui déborde, etc.).
+ * Claude vision demo over PageSchema: we present the page (PNG + semantic
+ * schema) to Claude and ask it to suggest IntentOps to improve the rendering
+ * (cut-off text, overflowing image, etc.).
  *
- * NB : c'est une démo, pas un appel intégré dans l'orchestrator. Le but
- * est de prouver que Claude peut produire des IntentOps valides qu'on
- * sait résoudre en Operations bas niveau.
+ * NB: this is a demo, not a call integrated into the orchestrator. The goal
+ * is to prove that Claude can produce valid IntentOps that we know how to
+ * resolve into low-level Operations.
  */
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -23,15 +23,15 @@ export interface ExpectedProductSummary {
 
 export interface SuggestOptions {
   schema: PageSchema;
-  /** PNG de la page rendue (apres substitute) pour que Claude la voie. */
+  /** PNG of the rendered page (after substitute) so Claude can see it. */
   pngPath: string;
   workDir: string;
   projectDir: string;
   claudeBin?: string;
-  /** Produits ATTENDUS sur cette page (post-substitution). Permet a Claude
-   *  de NE PAS comparer au template d'origine mais au resultat attendu, et
-   *  de ne remonter que les defauts visuels (overflow, coupure, image
-   *  deformee, chevauchement). */
+  /** EXPECTED products on this page (post-substitution). Lets Claude NOT
+   *  compare against the original template but against the expected result,
+   *  and only report visual defects (overflow, clipping, deformed image,
+   *  overlap). */
   expectedProducts?: ExpectedProductSummary[];
 }
 
@@ -94,8 +94,8 @@ export async function suggestIntentsForPage(opts: SuggestOptions): Promise<Sugge
   };
 }
 
-/** Valide la structure complete d'un IntentOp. Chaque op a des champs
- *  obligatoires — sans validation, le resolver crasherait sur undefined. */
+/** Validates the full structure of an IntentOp. Each op has required
+ *  fields — without validation, the resolver would crash on undefined. */
 function isValidIntent(x: unknown): boolean {
   if (!x || typeof x !== 'object') return false;
   const o = x as Record<string, unknown>;
@@ -122,18 +122,18 @@ function buildPrompt(
   auditPath: string,
   expectedProducts: ExpectedProductSummary[],
 ): string {
-  // On serialise les zones disponibles (= cibles valides pour les targets).
-  // ATTENTION : on n'inclut PAS les textes courants du template car la page
-  // a ete substituee — afficher "title : THERMOSTATIQUE..." alors que Claude
-  // voit "SOLANO" le confond et il croit a une erreur de substitution.
-  // On donne juste les targets canoniques et la nature de chaque zone.
+  // We serialize the available zones (= valid targets for the targets).
+  // CAUTION: we do NOT include the template's current texts because the page
+  // has been substituted — showing "title : THERMOSTATIQUE..." while Claude
+  // sees "SOLANO" confuses it into thinking there's a substitution error.
+  // We just give the canonical targets and the nature of each zone.
   const targets: string[] = [];
   const z = schema.zones;
   const prefix = `page_${schema.sourcePage}`;
 
   const products = z.products ?? [];
   if (products.length > 1) {
-    // Multi-produits : on expose chaque product_K.* explicitement.
+    // Multi-product: expose each product_K.* explicitly.
     for (let k = 0; k < products.length; k++) {
       const p = products[k];
       const pfx = `${prefix}.product_${k}`;
@@ -149,7 +149,7 @@ function buildPrompt(
       }
     }
   } else {
-    // Mono-produit : targets historiques (page_N.zone sans product_).
+    // Mono-product: legacy targets (page_N.zone without product_).
     if (z.title) targets.push(`  - ${prefix}.title : titre principal du produit`);
     if (z.reference) targets.push(`  - ${prefix}.reference : reference produit`);
     if (z.color) targets.push(`  - ${prefix}.color : couleur / finition`);
